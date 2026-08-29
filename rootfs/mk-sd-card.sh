@@ -25,6 +25,9 @@ target="${2:?usage: mk-sd-card.sh <rootfs.tar.gz> <output.img|/dev/sdX> [sizeGiB
 size_gib="${3:-12}"
 
 # Must match the eMMC boot chain + /etc/fstab inside the rootfs tarball.
+# The label matters too: with no root= in the vendor_boot cmdline, the pmOS
+# initramfs finds the root partition by LABEL="pmOS_root" (verified in the
+# initramfs init_functions.sh shipped on this device).
 boot_uuid="b7869a36-d9a0-4403-b9fd-e0ebec016b76"
 root_uuid="d2a235a8-37cd-4bac-be53-16caf2bfdd21"
 
@@ -64,7 +67,7 @@ esac
 
 echo ">>> filesystems (with the UUIDs the eMMC initramfs expects)"
 mkfs.ext2 -q -U "$boot_uuid" -L pmOS_boot "$bp"
-mkfs.ext4 -q -U "$root_uuid" -L gts9wifi-root "$rp"
+mkfs.ext4 -q -U "$root_uuid" -L pmOS_root "$rp"
 
 echo ">>> boot partition"
 m_boot="$(mktemp -d)"
