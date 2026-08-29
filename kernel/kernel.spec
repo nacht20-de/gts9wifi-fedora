@@ -46,6 +46,7 @@ make ARCH=arm64 LLVM=1 \
      INSTALL_DTBS_PATH=%{buildroot}/boot/dtbs-%{kversion}-%{flavor} \
      INSTALL_MOD_STRIP=1
 
+depmod -b %{buildroot}/usr -a %{kversion}-%{flavor}
 rm -f %{buildroot}/usr/lib/modules/*/build %{buildroot}/usr/lib/modules/*/source
 
 %files
