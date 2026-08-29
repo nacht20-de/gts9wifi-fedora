@@ -1,0 +1,22 @@
+# Enablement policy for this port's units.  systemd-preset-all runs on first
+# boot and strips enablement from anything without a preset entry, which is
+# how the first Fedora boot silently lost the whole device stack.
+#
+# The ADSP chain (hexagonrpcd-adsp-sensorspd + its Required
+# gts9wifi-adsp-boot) is deliberately NOT enabled: the ADSP start can hang or
+# reset the SoC (per the pmOS port) and doing it concurrently with
+# panel-coldboot-recover's pm_test suspend froze the board outright.  Start
+# it manually, one unit at a time.
+enable sshd.service
+enable NetworkManager.service
+enable hexagonrpcd-sdsp.service
+enable hexagonrpcd-adsp-rootpd.service
+enable pd-mapper.service
+enable gts9wifi-bt-provision.service
+enable gts9wifi-mem-reclaim.service
+enable gts9wifi-wait-sensor-proxy.service
+enable gts9wifi-panel-coldboot-recover.service
+enable gts9wifi-grow-rootfs.service
+enable mnt-vendor-persist.mount
+enable vendor-dsp.mount
+enable vendor-firmware_mnt.mount
