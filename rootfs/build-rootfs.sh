@@ -58,7 +58,7 @@ echo ">>> Installing native build dependencies (build container only)"
 # below needs the binary.
 dnf -y -q install systemd meson ninja-build gcc git curl tar patch make \
     "pkgconf-pkg-config" \
-    glib2-devel libgudev-devel systemd-devel kmod \
+    glib2-devel libgudev-devel systemd-devel polkit-devel kmod \
     libqmi-devel protobuf-c-devel qrtr-devel xz-devel \
     python3-devel python3-protobuf
 
@@ -98,6 +98,15 @@ DESTDIR="$hexdir/staging" meson install --no-rebuild -C "$hexdir/build"
 install -Dm644 "$repo_dir"/specs/hexagonrpcd-samsung/patches/10-fastrpc.rules \
     -t "$hexdir/staging/usr/lib/udev/rules.d/"
 cp -a "$hexdir/staging/." "$rootfs/"
+# The patch installs units to libdir/systemd/system, which lands in
+# usr/lib64 on Fedora — a path systemd does not search. Move them next to
+# every other system unit.
+if [ -d "$rootfs/usr/lib64/systemd/system" ]; then
+    mkdir -p "$rootfs/usr/lib/systemd/system"
+    mv "$rootfs"/usr/lib64/systemd/system/* "$rootfs/usr/lib/systemd/system/"
+    rmdir "$rootfs/usr/lib64/systemd/system" "$rootfs/usr/lib64/systemd" \
+        2>/dev/null || true
+fi
 
 echo ">>> Building iio-sensor-proxy 3.9 with libssc support"
 # Fedora's own build may not link libssc; build it exactly like the pmOS port
