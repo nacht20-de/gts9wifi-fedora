@@ -1,0 +1,12 @@
+[Unit]
+Description=Reclaim unused downstream carveouts from the boot DTBs
+# bt-provision only rewrites the blob when the address does not already
+# match, so letting it go first keeps it from compacting away the padding.
+After=gts9wifi-bt-provision.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gts9wifi-mem-reclaim
+
+[Install]
+WantedBy=multi-user.target

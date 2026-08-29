@@ -1,0 +1,14 @@
+[Unit]
+Description=Boot the ADSP remoteproc once the rootfs firmware is reachable
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 25
+ExecStart=/bin/sh -c "grep -q running /sys/class/remoteproc/remoteproc0/state || echo start > /sys/class/remoteproc/remoteproc0/state"
+TimeoutStartSec=45
+RemainAfterExit=yes
+
+# Not enabled by default: the ADSP start can hang or reset the SoC.
+[Install]
+WantedBy=multi-user.target

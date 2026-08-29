@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+# The DTS descends from the Qualcomm kalama reference tree, so it inherited
+# the full downstream reserved-memory list: modem, CDSP, Samsung ramdump and
+# the Gunyah VM payloads.  None of those have a consumer on this port -- the
+# mpss and cdsp remoteprocs are status=disabled, no rmtfs daemon runs, this is
+# the Wi-Fi SKU, and pmOS never instantiates the VMs -- but the kernel still
+# honours the carveouts, which is why MemTotal comes up around 6.4 GiB on an
+# 8 GiB tablet.  Delete the unused regions from both DTB copies on disk: the
+# DTB appended to the kernel in boot (the one ABL actually loads) and the
+# vendor_boot dtb field.  Idempotent; runs every boot so a reflashed image is
+# re-reclaimed on its first boot.
+#
+# Only regions whose consumer is Linux are touched.  Firmware-owned carveouts
+# (TZ/QTEE, hyp, Samsung uH/RKP) are deliberately left alone: deleting those
+# frees nothing, because the firmware keeps writing to the memory that Linux
+# would then hand out.
+#
+# The blob is always padded back to the exact length it had on disk, with the
+# FDT totalsize field inflated to cover the slack.  Removing nodes shrinks the
+# blob, and a shorter kernel section can change page_align(kernel_size), which
+# would move the ramdisk and brick the boot image.  Padding keeps every offset
+# byte-identical, so neither header needs rewriting at all.
+#
+# Ordered after gts9wifi-bt-provision: that script only rewrites the blob when
+# the address does not already match, so letting it go first means it never
+# compacts away the padding on a later boot.
+
+import os
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+
+BOOT = '/dev/disk/by-partlabel/boot'
+VENDOR_BOOT = '/dev/disk/by-partlabel/vendor_boot'
+FDT_MAGIC = b'\xd0\x0d\xfe\xed'
+PAGE = 4096
+
+RESERVED = '/reserved-memory'
+
+# Regions to drop, grouped by why they are dead.  Sizes are the measured
+# reservation, totalling about 812 MiB.
+REGIONS = [
+    # modem: remoteproc@4080000 is status=disabled, no rmtfs daemon, Wi-Fi SKU
+    'mpss-region@8a800000',                     # 264.0M
+    'mpss-dsm-region@d4d00000',                 #  51.0M
+    'q6-mpss-dtb-region@9b000000',              #   0.5M
+    'rmtfs-region@d4a80000',                    #   2.5M
+    'ipa-fw-region@9b080000',                   #   0.1M
+    'ipa-gsi-region@9b090000',                  #   0.0M
+    'spu-modem-shared-region@9b2e0000',         #   0.1M
+    # Samsung downstream debug/ramdump: no DT consumer, no mainline driver.
+    # sec-log is kept, the sec-kernel-log node is enabled.
+    'sec-qcom-rdx@880c00000',                   # 173.0M
+    'sec-debug-bl@880400000',                   #   5.0M
+    'sec-xbl-ramdump@a7d00000',                 #   3.0M
+    'sec-pmsg@880900000',                       #   2.0M
+    'sec-debug-pool@880100000',                 #   1.0M
+    'sec-reset-info@8801ff000',
+    'google-debug-kinfo@880b00000',
+    'hdm@880b01000',
+    # CDSP: remoteproc@32300000 is status=disabled
+    'cdsp-secure-heap-region@82800000',         #  70.0M
+    'cdsp-region@9c900000',                     #  32.0M
+    'q6-cdsp-dtb-region@9e900000',              #   0.5M
+    # splash framebuffer and unused multimedia, none of which has a consumer
+    # node.  video-region is kept, video-codec@aa00000 (qcom,sm8550-iris) is
+    # status=okay; gpu-micro-code-region is kept, gpu@3d00000/zap-shader
+    # needs it to bring the GPU out of secure mode.
+    'splash_region',                            #  43.0M
+    'camera-region@9b300000',                   #   8.0M
+    'cvp-region@9c200000',                      #   7.0M
+    # Gunyah VM payloads.  uh-guest/uh-heap are kept: Samsung RKP holds EL2,
+    # as shown by the absence of /dev/kvm.
+    'trust-ui-vm-region@f3600000',              #  74.9M
+    'trust-ui-vm-swiotlb-region@f8100000',      #   1.0M
+    'trust-ui-vm-dump-region@f80ee000',
+    'trust-ui-vm-qrt-region@f80ef000',
+    'trust-ui-vm-vblk0-ring-region@f80f8000',
+    'trust-ui-vm-vblk1-ring-region@f80fc000',
+    'oem-vm-region@f8400000',                   #  72.0M
+    'oem-vm-swiotlb-region@fcc04000',           #   1.0M
+    'oem-vm-vblk0-ring-region@fcc00000',
+]
+
+# memory-region properties left dangling once the regions above are gone.
+# Both consumers are status=disabled and every phandle in each property is
+# removed, so the whole property goes.
+DANGLING = [
+    ('/soc@0/remoteproc@4080000', 'memory-region'),
+    ('/soc@0/remoteproc@32300000', 'memory-region'),
+]
+
+
+def fdt_nodes(path, node):
+    got = subprocess.run(['fdtget', '-l', path, node],
+                         capture_output=True, text=True)
+    if got.returncode != 0:
+        return []
+    return got.stdout.split()
+
+
+def patch_dtb(dtb):
+    """Return the reclaimed blob padded to len(dtb), or None if unchanged."""
+    # /run at boot, but honour TMPDIR so the patcher can be exercised
+    # off-device against a captured DTB without root.
+    fd, path = tempfile.mkstemp(dir=os.environ.get('TMPDIR') or '/run')
+    try:
+        os.write(fd, dtb)
+        os.close(fd)
+
+        present = set(fdt_nodes(path, RESERVED))
+        victims = [r for r in REGIONS if r in present]
+        stale = [(n, p) for n, p in DANGLING
+                 if subprocess.run(['fdtget', path, n, p],
+                                   capture_output=True).returncode == 0]
+        if not victims and not stale:
+            return None
+
+        for name in victims:
+            subprocess.run(['fdtput', '-r', path, RESERVED + '/' + name],
+                           check=True)
+        for node, prop in stale:
+            subprocess.run(['fdtput', '-d', path, node, prop], check=True)
+
+        with open(path, 'rb') as f:
+            out = f.read()
+    finally:
+        os.unlink(path)
+
+    if len(out) > len(dtb):
+        sys.exit('reclaimed dtb grew, refusing to write')
+    # Pad back to the original envelope and let the FDT header cover the
+    # slack, so every downstream offset in the boot image stays put.
+    out = bytearray(out) + b'\x00' * (len(dtb) - len(out))
+    struct.pack_into('>I', out, 4, len(dtb))
+    return bytes(out)
+
+
+def reclaim_boot():
+    with open(BOOT, 'r+b') as part:
+        head = part.read(PAGE)
+        if head[:8] != b'ANDROID!':
+            sys.exit('boot: bad magic')
+        ksize = struct.unpack_from('<I', head, 8)[0]
+        part.seek(PAGE)
+        kernel = part.read(ksize)
+        # the appended DTB is the tail of the kernel section
+        off = ksize
+        while True:
+            off = kernel.rfind(FDT_MAGIC, 0, off)
+            if off < 0:
+                sys.exit('boot: no appended dtb')
+            if off + struct.unpack_from('>I', kernel, off + 4)[0] == ksize:
+                break
+        dtb = patch_dtb(kernel[off:])
+        if dtb is None:
+            return False
+        if len(dtb) != ksize - off:
+            sys.exit('boot: dtb envelope changed, refusing to write')
+        part.seek(PAGE + off)
+        part.write(dtb)
+        part.flush()
+        os.fsync(part.fileno())
+    return True
+
+
+def reclaim_vendor_boot():
+    with open(VENDOR_BOOT, 'r+b') as part:
+        head = part.read(PAGE)
+        if head[:8] != b'VNDRBOOT':
+            sys.exit('vendor_boot: bad magic')
+        vrsize = struct.unpack_from('<I', head, 24)[0]
+        hsize, dtb_size = struct.unpack_from('<II', head, 2096)
+        dtb_off = ((hsize + PAGE - 1) // PAGE * PAGE +
+                   (vrsize + PAGE - 1) // PAGE * PAGE)
+        part.seek(dtb_off)
+        old = part.read(dtb_size)
+        if old[:4] != FDT_MAGIC:
+            sys.exit('vendor_boot: no dtb at %d' % dtb_off)
+        dtb = patch_dtb(old)
+        if dtb is None:
+            return False
+        if len(dtb) != dtb_size:
+            sys.exit('vendor_boot: dtb envelope changed, refusing to write')
+        part.seek(dtb_off)
+        part.write(dtb)
+        part.flush()
+        os.fsync(part.fileno())
+    return True
+
+
+def live_reclaimed():
+    try:
+        base = '/sys/firmware/devicetree/base' + RESERVED
+        return not any(os.path.exists(os.path.join(base, r)) for r in REGIONS)
+    except OSError:
+        return False
+
+
+def main():
+    if os.geteuid() != 0:
+        sys.exit('must run as root')
+    for _ in range(100):
+        if all(os.path.exists(p) for p in (BOOT, VENDOR_BOOT)):
+            break
+        time.sleep(0.1)
+    changed = reclaim_boot()
+    changed |= reclaim_vendor_boot()
+    if changed:
+        print('reserved-memory reclaimed in the boot DTBs; reboot to apply')
+    elif not live_reclaimed():
+        print('boot DTBs already reclaimed; reboot still pending')
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,10 @@
+# Let the session pin the GPU and UFS devfreq domains to their top OPP while a
+# game runs. Both default to simple_ondemand and neither exposes a performance
+# governor, so raising min_freq to max_freq is the only lever, and doing it from
+# the session avoids holding the top OPP at idle. Group video is what the seat
+# user already has for the GPU.
+ACTION=="add|change", SUBSYSTEM=="devfreq", KERNEL=="*.gpu", \
+	RUN+="/bin/sh -c 'chgrp video %S%p/min_freq && chmod 0664 %S%p/min_freq'"
+
+ACTION=="add|change", SUBSYSTEM=="devfreq", KERNEL=="*.ufshc", \
+	RUN+="/bin/sh -c 'chgrp video %S%p/min_freq && chmod 0664 %S%p/min_freq'"
