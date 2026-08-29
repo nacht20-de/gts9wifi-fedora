@@ -39,8 +39,10 @@ echo ">>> Fedora $fedora_release rootfs for gts9wifi, kernel $kver"
 mkdir -p "$rootfs" "$outdir"
 
 echo ">>> Installing rootfs packages"
+# --use-host-config: dnf5 loads repositories from the (empty) installroot
+# otherwise; the container's own repo config + gpg keys are what we want.
 dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
-    --setopt=install_weak_deps=False install \
+    --use-host-config --setopt=install_weak_deps=False install \
     @core \
     NetworkManager NetworkManager-wifi wpa_supplicant \
     openssh-server openssh-clients \
