@@ -50,6 +50,7 @@ dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
     bluez bluez-tools \
     qrtr \
     alsa-ucm alsa-utils dtc \
+    libqmi libqrtr-glib protobuf-c libmbim \
     linux-firmware \
     e2fsprogs kmod
 
@@ -121,6 +122,10 @@ meson compile -C "$ispdir/build"
 DESTDIR="$ispdir/staging" meson install --no-rebuild -C "$ispdir/build"
 cp -a "$ispdir/staging/." "$rootfs/"
 
+# hexagonrpcd units run as the fastrpc system user (Alpine pre-install equivalent)
+groupadd --root "$rootfs" -r fastrpc
+useradd --root "$rootfs" -r -g fastrpc -s /usr/sbin/nologin -d / fastrpc
+
 echo ">>> Applying device overlay"
 cp -a "$repo_dir/rootfs/overlay/." "$rootfs/"
 
@@ -187,6 +192,7 @@ for unit in \
     pd-mapper \
     gts9wifi-wait-sensor-proxy \
     gts9wifi-bt-provision bluetooth gts9wifi-mem-reclaim \
+    gts9wifi-adsp-boot \
     gts9wifi-panel-coldboot-recover \
     gts9wifi-grow-rootfs \
     gts9wifi-usb-net mnt-vendor-persist.mount vendor-dsp.mount vendor-firmware_mnt.mount

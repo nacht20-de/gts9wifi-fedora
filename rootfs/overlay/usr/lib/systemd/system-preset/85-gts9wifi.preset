@@ -20,3 +20,4 @@ enable gts9wifi-usb-net.service
 enable mnt-vendor-persist.mount
 enable vendor-dsp.mount
 enable vendor-firmware_mnt.mount
+enable gts9wifi-adsp-boot.service
