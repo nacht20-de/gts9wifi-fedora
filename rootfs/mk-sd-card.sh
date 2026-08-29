@@ -76,6 +76,27 @@ m_root="$(mktemp -d)"
 mount "$rp" "$m_root"
 tar xzf "$rootfs_tar" -C "$m_root"
 
+echo ">>> injecting local assets (CI rootfs ships without them)"
+kver="${GTS9_KERNEL_VERSION:-7.2.0-rc3}"
+if [ -f "$assets/firmware.tar.gz" ]; then
+    tar xzf "$assets/firmware.tar.gz" -C "$m_root"
+else
+    echo "    WARN: no firmware payload — Wi-Fi/BT/audio/sensors will be dead"
+fi
+if [ -d "$assets/modules/$kver" ]; then
+    mkdir -p "$m_root/usr/lib/modules"
+    cp -a "$assets/modules/$kver" "$m_root/usr/lib/modules/"
+    depmod -b "$m_root" "$kver"
+else
+    echo "    WARN: no kernel modules for $kver — the rootfs will not boot"
+fi
+if [ -f "$assets/ssh-key.pub" ]; then
+    install -Dm600 -o 1000 -g 1000 "$assets/ssh-key.pub" \
+        "$m_root/home/phablet/.ssh/authorized_keys"
+else
+    echo "    NOTE: no ssh key; first login uses password 'phablet'"
+fi
+
 echo ">>> syncing"
 sync
 umount "$m_boot" "$m_root"
