@@ -49,7 +49,7 @@ dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
     sudo chrony zram-generator python3 \
     bluez bluez-tools \
     qrtr \
-    alsa-ucm alsa-utils \
+    alsa-ucm alsa-utils dtc \
     linux-firmware \
     e2fsprogs kmod
 
@@ -183,7 +183,7 @@ fi
 echo ">>> Enabling services"
 for unit in \
     sshd NetworkManager \
-    hexagonrpcd-sdsp hexagonrpcd-adsp-rootpd \
+    hexagonrpcd-adsp-rootpd \
     pd-mapper \
     gts9wifi-wait-sensor-proxy \
     gts9wifi-bt-provision bluetooth gts9wifi-mem-reclaim \

@@ -9,7 +9,6 @@
 # it manually, one unit at a time.
 enable sshd.service
 enable NetworkManager.service
-enable hexagonrpcd-sdsp.service
 enable hexagonrpcd-adsp-rootpd.service
 enable pd-mapper.service
 enable gts9wifi-bt-provision.service
