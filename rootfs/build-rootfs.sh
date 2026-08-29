@@ -182,7 +182,7 @@ fi
 
 echo ">>> Enabling services"
 for unit in \
-    sshd NetworkManager qrtr-ns \
+    sshd NetworkManager \
     hexagonrpcd-sdsp hexagonrpcd-adsp-rootpd hexagonrpcd-adsp-sensorspd \
     pd-mapper \
     gts9wifi-wait-sensor-proxy \
