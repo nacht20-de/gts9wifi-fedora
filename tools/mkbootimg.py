@@ -28,7 +28,13 @@ import os
 import re
 import tempfile
 
-from gki.generate_gki_certificate import generate_gki_certificate
+# GKI certificate generation needs the full AOSP gki package; optional
+# (only used with --gki_signing_args / v4 signing, which this port does
+# not use - Samsung ABL + disabled vbmeta).
+try:
+    from gki.generate_gki_certificate import generate_gki_certificate
+except ImportError:
+    generate_gki_certificate = None
 
 # Constant and structure definition is in
 # system/tools/mkbootimg/include/bootimg/bootimg.h
