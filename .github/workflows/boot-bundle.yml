@@ -1,0 +1,80 @@
+name: Boot bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_rpm_url:
+        description: "Kernel RPM URL (defaults to the pinned release)"
+        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-1/linux-gts9wifi-7.2.0-0.1.rc3.fc44.aarch64.rpm"
+        type: string
+      kernel_sha256:
+        description: "sha256 of the RPM"
+        default: "52c307771baba9281fa0218dd1e8fea6801f9afd8aea8551d9e8838af605cf36"
+        type: string
+
+env:
+  KVER: 7.2.0-rc3-gts9wifi
+
+jobs:
+  bundle:
+    # Fast path: fetch the prebuilt kernel RPM and assemble initramfs +
+    # Android-v4 bundle + TWRP zip.  No kernel compile (~5 min instead of ~55).
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build initramfs, boot bundle and TWRP zip
+        run: |
+          docker run --rm \
+            -e KVER \
+            -e KERNEL_RPM_URL='${{ inputs.kernel_rpm_url }}' \
+            -e KERNEL_SHA256='${{ inputs.kernel_sha256 }}' \
+            -v "$PWD:/work" -w /work \
+            quay.io/fedora/fedora:44 \
+            bash -lc '
+              set -euxo pipefail
+              dnf -y install dracut cpio lz4 iproute curl dtc findutils python3 >/dev/null
+
+              # --- pinned kernel RPM ---
+              curl -sfL "$KERNEL_RPM_URL" -o /tmp/kernel.rpm
+              echo "$KERNEL_SHA256  /tmp/kernel.rpm" | sha256sum -c -
+              dnf -y install /tmp/kernel.rpm
+              depmod -a "$KVER"
+              ls /boot/vmlinuz-"$KVER" /boot/dtbs-7.2.0-rc3-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb
+
+              # --- initramfs ---
+              cp -a /work/boot/dracut/90gts9wifi-usbnet /usr/lib/dracut/modules.d/
+              cp /work/boot/dracut/dracut.conf.d/gts9wifi.conf /usr/lib/dracut/dracut.conf.d/
+              dracut --kver "$KVER" --force /tmp/initramfs.img
+
+              # --- bundle + TWRP zip ---
+              mkdir -p out-bundle out-twrp
+              bash /work/boot/build-bundle.sh \
+                --vmlinuz /boot/vmlinuz-"$KVER" \
+                --dtb "/boot/dtbs-7.2.0-rc3-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb" \
+                --initramfs /tmp/initramfs.img \
+                --cmdline /work/boot/cmdline.txt \
+                --bootconfig /work/boot/bootconfig.txt \
+                --out out-bundle
+              python3 /work/tools/make-twrp-zip.py out-bundle \
+                out-twrp/gts9wifi-fedora-"$KVER".zip --project /work
+            '
+
+      - name: Upload boot bundle images
+        uses: actions/upload-artifact@v4
+        with:
+          name: gts9wifi-boot-bundle
+          path: |
+            out-bundle/*.img
+            out-bundle/SHA256SUMS
+            out-bundle/BUILD-METADATA.txt
+          if-no-files-found: error
+
+      - name: Upload TWRP flash zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: gts9wifi-twrp-zip
+          path: out-twrp/*.zip
+          if-no-files-found: error
