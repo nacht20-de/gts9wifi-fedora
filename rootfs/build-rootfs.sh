@@ -183,7 +183,7 @@ fi
 echo ">>> Enabling services"
 for unit in \
     sshd NetworkManager \
-    hexagonrpcd-sdsp hexagonrpcd-adsp-rootpd hexagonrpcd-adsp-sensorspd \
+    hexagonrpcd-sdsp hexagonrpcd-adsp-rootpd \
     pd-mapper \
     gts9wifi-wait-sensor-proxy \
     gts9wifi-bt-provision bluetooth gts9wifi-mem-reclaim \
@@ -194,9 +194,16 @@ do
     systemctl --root="$rootfs" enable "$unit" >/dev/null 2>&1 \
         || echo "    WARN: unit not found (check name after hexagonrpcd patch): $unit"
 done
-# Not enabled, matching the pmOS port: gts9wifi-adsp-boot.service is pulled in
-# via the hexagonfs drop-in's Requires=, gts9wifi-bt-revive.service is started
-# by hand when the WCN sequencer takes hci0 down.
+# Deliberately NOT enabled, matching hard-won pmOS experience:
+# - hexagonrpcd-adsp-sensorspd: pulls in gts9wifi-adsp-boot via the hexagonfs
+#   drop-in's Requires=; the ADSP start can hang or reset the SoC, and doing
+#   it while panel-coldboot-recover runs its pm_test suspend froze the board
+#   completely.  Start it manually and watch.
+# - gts9wifi-adsp-boot.service: same, ships disabled in the pmOS port.
+# - gts9wifi-bt-revive.service: started by hand when the WCN sequencer
+#   takes hci0 down.
+# The preset in overlay/usr/lib/systemd/system-preset/85-gts9wifi.preset
+# keeps first-boot preset-all from stripping the enablement above.
 # TODO(phase-1.5): vendor make-dynpart-mappings and enable
 # gts9wifi-android-parts.service + vendor.mount (super -> erofs /vendor).
 
