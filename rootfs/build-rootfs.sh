@@ -189,7 +189,7 @@ for unit in \
     gts9wifi-bt-provision bluetooth gts9wifi-mem-reclaim \
     gts9wifi-panel-coldboot-recover \
     gts9wifi-grow-rootfs \
-    mnt-vendor-persist.mount vendor-dsp.mount vendor-firmware_mnt.mount
+    gts9wifi-usb-net mnt-vendor-persist.mount vendor-dsp.mount vendor-firmware_mnt.mount
 do
     systemctl --root="$rootfs" enable "$unit" >/dev/null 2>&1 \
         || echo "    WARN: unit not found (check name after hexagonrpcd patch): $unit"

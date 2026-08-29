@@ -1,0 +1,16 @@
+[Unit]
+Description=Static USB gadget network for gts9wifi debug access
+# NetworkManager ships a matching keyfile for usb0, but it has not applied it
+# reliably on this board (interface comes up configured by the initramfs and
+# NM leaves the initramfs address in place, or none at all).  Force the debug
+# address deterministically after NM has had its chance.
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'i=0; while [ $i -lt 30 ] && ! ip link show usb0 >/dev/null 2>&1; do sleep 1; i=$((i+1)); done; ip link set usb0 up; ip addr replace 172.16.42.1/24 dev usb0 || true'
+
+[Install]
+WantedBy=multi-user.target
