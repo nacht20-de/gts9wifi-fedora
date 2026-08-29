@@ -1,85 +1,55 @@
 # Fedora on the Samsung Galaxy Tab S9 Wi-Fi (gts9wifi, SM-X710)
 
-Second distribution target for the mainline-Linux port.  Everything hard —
-kernel patches, DTS, boot chain, firmware — comes from the working
-postmarketOS port ([pmos-gts9wifi-build](https://github.com/nacht20-de/pmos-gts9wifi-build));
-this repo packages a Fedora userland around it.  Full extraction inventory:
-[docs/PORT-KIT.md](docs/PORT-KIT.md).
+Fedora userland for the mainline port.  All device knowledge — kernel
+patches, DTS, boot chain, firmware — is inherited from the working
+postmarketOS port (https://github.com/nacht20-de/pmos-gts9wifi-build);
+nothing here duplicates it.  Boot strategy for now: the eMMC chain stays
+untouched, Samsung ABL loads the pmOS boot.img and initramfs, which mounts
+the SD /boot partition by UUID and switch_roots into whatever ext4 root
+carries the matching UUID — so this repo just builds a Fedora rootfs for a
+spare microSD with the same two partition UUIDs.  The daily pmOS card is
+never touched and the eMMC is never written, apart from the same idempotent
+BD-address and carveout DTB patches pmOS itself applies.  Full inventory of
+everything extracted from the port and the device: docs/PORT-KIT.md.
 
-## Boot strategy (phase 1)
+Layout:
 
-The eMMC boot chain stays **untouched** — Samsung ABL loads `boot.img`
-(kernel `7.2.0-rc3 #121` + appended DTB) + the pmOS initramfs, which mounts
-the SD card's `/boot` partition **by UUID**, loads `initramfs-extra`, then
-switch_roots into whatever ext4 root carries the matching UUID.  That
-initramfs is rootfs-agnostic, so phase 1 simply puts Fedora on a spare SD
-card using the same two UUIDs.  Daily pmOS card is never touched.
+- `rootfs/` - build-rootfs.sh (runs inside a Fedora aarch64 container),
+  overlay/ (device services, mounts, udev rules and UCM translated from the
+  pmos port), mk-sd-card.sh (spare-SD assembly), fetch-local-assets.sh.
+- `specs/` - RPM specs with the vendored Samsung patches (hexagonrpcd,
+  iio-sensor-proxy); compiled inline by build-rootfs.sh for now, COPR later.
+- `docs/` - PORT-KIT.md, the extraction inventory.
+- `.github/workflows/` - arm64 runner CI, same model as the pmos kernel
+  build workflow.
 
-```
-eMMC (unchanged)                 spare microSD (this repo)
-┌─────────────────────┐          ┌──────────────────────────┐
-│ boot    kernel+DTB  │───┐      │ p1 ext2 /boot            │
-│ init_boot ramdisk   │   ├─────▶│   UUID b7869a36-…        │
-│ vendor_boot cmdline │───┘      │   known-good boot files  │
-│ dtbo (invalid=off)  │          │ p2 ext4 /                │
-└─────────────────────┘          │   UUID d2a235a8-…        │
-                                 │   Fedora rootfs          │
-                                 └──────────────────────────┘
-```
+libssc and pd-mapper are not in Fedora and are built from source (libssc
+0.4.4, pd-mapper 1.1 — the sm8550 ADSP needs no service-registry JSONs,
+verified on the pmOS device).  hexagonrpcd 0.4.0 carries the port's Samsung
+sensor-registry patches; iio-sensor-proxy 3.9 builds against libssc.  Device
+blobs (firmware payload, kernel modules, boot images, ssh key) are never
+committed: rootfs/fetch-local-assets.sh repopulates them from the tablet
+and the port kit.
 
-## Build
+## Building
 
-CI (core rootfs, no device blobs):
+CI builds a core rootfs: Actions -> "Fedora rootfs" -> Run workflow.  A
+first-boot-ready build runs locally with the tablet attached over USB:
 
-- Actions → **Fedora rootfs** → Run workflow (arm64 runner, native aarch64
-  Fedora container, no qemu — same model as the pmOS kernel workflow).
+    ./rootfs/fetch-local-assets.sh
+    podman run --rm -it -v "$PWD:/work:Z" -w /work quay.io/fedora/fedora:44 \
+        ./rootfs/build-rootfs.sh
+    sudo ./rootfs/mk-sd-card.sh out/gts9wifi-fedora-44-rootfs.tar.gz /dev/sdX
 
-Local (first-boot-ready, needs the tablet attached via USB):
+Boot with the spare card inserted; USB networking comes up on usb0:
+ssh phablet@172.16.42.1 (phablet / phablet, or the key from local-assets).
 
-```sh
-./rootfs/fetch-local-assets.sh     # firmware payload, kernel modules, boot files, ssh key
-podman run --rm -it -v "$PWD:/work:Z" -w /work quay.io/fedora/fedora:44 ./rootfs/build-rootfs.sh
-sudo ./rootfs/mk-sd-card.sh out/gts9wifi-fedora-44-rootfs.tar.gz /dev/sdX
-```
+## Status
 
-First boot: tablet powered off, swap cards, boot.  The pmOS initramfs
-brings up USB networking; after switch_root NetworkManager keeps `usb0`
-static → `ssh phablet@172.16.42.1` (password `phablet`, or your key via
-local-assets).
-
-## What ships in the rootfs
-
-- hexagonrpcd 0.4.0 built from source with the port's two Samsung patches
-  (large FastRPC inbufs, sensor-registry writes onto the stock `persist`
-  partition) — specs/hexagonrpcd-samsung/
-- libssc 0.4.4 and pd-mapper 1.1 built from source (neither is in Fedora);
-  iio-sensor-proxy 3.9 built against libssc + the slow-discovery patch
-- qrtr (Fedora repo); bluez; per-boot BD-address + DTB memory-carveout
-  provisioning (`bt-provision`, `mem-reclaim`) patching the eMMC boot images
-  idempotently
-- ALSA UCM for the 4× CS35L45 speaker setup (speaker volume stays capped at
-  −19 dB until speaker-protection firmware works — keep it that way)
-- Device services translated from the pmOS port: sensor-SSC recovery + resume
-  hooks, panel cold-boot recovery, BT revive helper, rootfs grow
-- Runtime mounts of stock Android partitions: `persist` (rw, sensor/Wi-Fi
-  calibration), `dsp`, and `apnhlos` firmware; eMMC boot images are only
-  touched by the idempotent BD-address/carveout DTB patches
-
-## Roadmap
-
-- [x] Phase 1 — Fedora rootfs on spare SD, pmOS boot chain, SSH + core
-      hardware services (this repo, status: **first boot pending**)
-- [ ] Phase 1.5 — vendor `make-dynpart-mappings`, enable `vendor.mount`
-      (super → erofs /vendor); python `bt-provision` (per-boot DTB BD patch)
-- [ ] Phase 2 — kernel RPM (COPR or Actions-built) + own Android-v4 boot
-      bundle via the pmos repo scripts; TWRP-zip/Odin flash flow
-- [ ] Phase 3 — pocketblue-style bootc/atomic images (custom `disk.yaml`
-      ext2+ext4 without ESP, `artifacts.sh` boot bundle, kernel-update
-      story for the ABL chain)
-
-## Not in git (by design)
-
-`local-assets/` — firmware blobs extracted from this specific unit
-(Samsung/Qualcomm redistribution caveats), kernel modules, boot images,
-your ssh key.  `rootfs/fetch-local-assets.sh` repopulates them from the
-device + port kit.
+First boot still pending — nothing is verified on hardware yet.  Known
+gaps, deliberate for now: the super/vendor erofs mount is disabled (needs
+make-dynpart-mappings, a pmOS tool with no Fedora counterpart), SELinux is
+permissive, and the rootfs boots the eMMC pmOS kernel 7.2.0-rc3 #121 with
+modules injected from the device.  Next: own kernel RPM plus an Android-v4
+boot bundle via the pmos repo scripts, then pocketblue-style atomic images
+(the ABL kernel-update problem is the open design point there).
