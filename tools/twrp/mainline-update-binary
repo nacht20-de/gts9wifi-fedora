@@ -77,7 +77,7 @@ done
 
 # Overlays targeted the retired microSD rootfs; the rootfs now lives inside
 # the userdata partition and is updated by dd'ing the whole image, not here.
-if unzip -l "$ZIPFILE" ROOTFS-OVERLAY-SHA256SUMS >/dev/null 2>&1; then
+if unzip -l "$ZIPFILE" 2>/dev/null | grep -q "ROOTFS-OVERLAY-SHA256SUMS"; then
     abort "This ZIP carries a microSD rootfs overlay; that layout is gone. \
 Flash the boot bundle without an overlay and dd the userdata rootfs image."
 fi

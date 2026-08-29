@@ -18,7 +18,7 @@ set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 
 boot_size=100663296
-init_boot_size=100663296
+init_boot_size=8388608
 vendor_boot_size=100663296
 dtbo_size=16777216
 vbmeta_size=131072
@@ -62,11 +62,21 @@ image="$tmp/Image.gz"
 python3 "$repo/boot/extract-zboot-payload.py" "$vmlinuz" "$image"
 
 # Samsung's ABL concatenates the init_boot ramdisk with the vendor_boot
-# fragments using the legacy LZ4 stream format.  A gzip initramfs is a valid
-# v4 image but the kernel rejects the combined archive, so recompress.
+# fragments, all in the legacy LZ4 stream format.  The init_boot partition is
+# physically 8 MB (verified on-device; pmOS and the UBports gts9 port agree),
+# far too small for the dracut initramfs - so init_boot carries an EMPTY
+# generic cpio and the full initramfs rides in the vendor_boot platform
+# fragment (96 MB).  The kernel unpacks the concatenated result as one
+# initramfs; this is the same mechanism the pmOS overlay experiments used.
 gzip -t "$initramfs"  # we feed dracut's default gzip output
-generic_ramdisk="$tmp/initramfs.lz4"
-gzip -dc "$initramfs" | lz4 -l -12 - "$generic_ramdisk" >/dev/null
+full_ramdisk="$tmp/initramfs.lz4"
+gzip -dc "$initramfs" | lz4 -l -12 - "$full_ramdisk" >/dev/null
+mkdir -p "$tmp/empty-ramdisk"
+touch -d '@0' "$tmp/empty-ramdisk"
+(
+    cd "$tmp/empty-ramdisk"
+    find . -print0 | cpio --reproducible --null -o --format=newc 2>/dev/null
+) | lz4 -l -12 - "$tmp/empty.lz4" >/dev/null
 
 cmdline=$(tr '\n' ' ' < "$cmdline_file" | sed 's/[[:space:]]*$//')
 
@@ -84,23 +94,17 @@ add_hash_footer "$out/boot.img" boot "$boot_size"
 
 # init_boot: the generic (dracut) ramdisk.
 python3 "$repo/tools/mkbootimg.py" \
-    --ramdisk "$generic_ramdisk" \
+    --ramdisk "$tmp/empty.lz4" \
     --header_version 4 \
     -o "$out/init_boot.img"
 add_hash_footer "$out/init_boot.img" init_boot "$init_boot_size"
 
-# vendor_boot: empty platform fragment + DTB + our cmdline + bootconfig.
-mkdir -p "$tmp/empty-vendor-ramdisk"
-touch -d '@0' "$tmp/empty-vendor-ramdisk"
-(
-    cd "$tmp/empty-vendor-ramdisk"
-    find . -print0 | cpio --reproducible --null -o --format=newc 2>/dev/null
-) | lz4 -l -12 - "$tmp/vendor_ramdisk.lz4" >/dev/null
+# vendor_boot: the full initramfs as the platform fragment + DTB + cmdline.
 
 python3 "$repo/tools/mkbootimg.py" \
     --ramdisk_type platform \
     --ramdisk_name '' \
-    --vendor_ramdisk_fragment "$tmp/vendor_ramdisk.lz4" \
+    --vendor_ramdisk_fragment "$full_ramdisk" \
     --dtb "$dtb" \
     --vendor_cmdline "$cmdline" \
     --header_version 4 \
