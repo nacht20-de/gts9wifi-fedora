@@ -52,7 +52,9 @@ dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
     e2fsprogs kmod
 
 echo ">>> Installing native build dependencies (build container only)"
-dnf -y -q install meson ninja-build gcc git curl tar patch make \
+# systemd: the base container image ships without it, but systemctl --root=
+# below needs the binary.
+dnf -y -q install systemd meson ninja-build gcc git curl tar patch make \
     "pkgconf-pkg-config" \
     glib2-devel libgudev-devel systemd-devel kmod \
     libqmi-devel protobuf-c-devel qrtr-devel xz-devel \
