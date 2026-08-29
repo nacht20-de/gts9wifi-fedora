@@ -21,6 +21,7 @@ set -euo pipefail
 
 fedora_release="${FEDORA_RELEASE:-44}"
 kver="${GTS9_KERNEL_VERSION:-7.2.0-rc3}"
+build_user="${GTS9_USER:-phablet}"
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_dir="$(dirname "$script_dir")"
@@ -176,11 +177,11 @@ EOF
 chmod 600 "$rootfs/etc/NetworkManager/system-connections/usb0.nmconnection"
 
 echo ">>> Users"
-echo 'root:phablet' | chpasswd --root "$rootfs"
-useradd --root "$rootfs" -m -G wheel -s /bin/bash phablet
-echo 'phablet:phablet' | chpasswd --root "$rootfs"
+echo "root:${build_user}" | chpasswd --root "$rootfs"
+useradd --root "$rootfs" -m -G wheel -s /bin/bash "$build_user"
+echo "${build_user}:${build_user}" | chpasswd --root "$rootfs"
 if [ -f "$assets/ssh-key.pub" ]; then
-    home="$rootfs/home/phablet"
+    home="$rootfs/home/$build_user"
     install -Dm600 -o 1000 -g 1000 "$assets/ssh-key.pub" "$home/.ssh/authorized_keys"
 else
     missing_assets+=("ssh-key.pub (your public key for passwordless first-boot SSH)")
