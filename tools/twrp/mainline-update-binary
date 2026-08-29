@@ -1,0 +1,122 @@
+#!/sbin/sh
+# Boot bundle installer for SM-X710 only.
+# It writes boot, init_boot, vendor_boot and dtbo.  It writes vbmeta only when
+# the recovery kernel exposes it read-write; otherwise it requires AVB flags 2
+# and preserves the existing vbmeta.
+# The rootfs is a separate userdata-ready image dd'd to the userdata
+# partition outside this installer.  It never writes super, userdata,
+# recovery, bootloader, PIT, EFS or Samsung firmware partitions.
+# It never formats, wipes or reboots.
+
+OUTFD=$2
+ZIPFILE=$3
+
+ui_print() {
+    echo "ui_print $1" >> /proc/self/fd/$OUTFD
+    echo "ui_print" >> /proc/self/fd/$OUTFD
+}
+
+abort() {
+    ui_print "ERROR: $1"
+    ui_print "Installation aborted. Reboot to recovery, not system."
+    exit 1
+}
+
+BUNDLE_LABEL="$(unzip -p "$ZIPFILE" BUNDLE-LABEL 2>/dev/null)"
+[ -n "$BUNDLE_LABEL" ] || BUNDLE_LABEL="unnamed SM-X710 boot bundle"
+ui_print "---------------------------------------"
+ui_print " $BUNDLE_LABEL"
+ui_print "---------------------------------------"
+
+DEVICE_CODENAME="$(getprop ro.product.device)"
+EM_MODEL="$(getprop ro.boot.em.model)"
+BOOTLOADER="$(getprop ro.bootloader)"
+
+case "$DEVICE_CODENAME" in
+    gts9|gts9wifi) ;;
+    *) abort "Expected gts9/gts9wifi; got '$DEVICE_CODENAME'" ;;
+esac
+
+if [ -n "$EM_MODEL" ] && [ "$EM_MODEL" != "SM-X710" ]; then
+    abort "Expected SM-X710; got '$EM_MODEL'"
+fi
+if [ -z "$EM_MODEL" ]; then
+    case "$BOOTLOADER" in
+        X710*) ui_print "em.model empty; X710 bootloader accepted" ;;
+        *) abort "Cannot positively identify SM-X710" ;;
+    esac
+fi
+
+BB=/dev/block/by-name
+SLOT="$(getprop ro.boot.slot_suffix)"
+
+resolve_part() {
+    if [ -n "$SLOT" ] && [ -e "$BB/$1$SLOT" ]; then
+        echo "$BB/$1$SLOT"
+    elif [ -e "$BB/$1" ]; then
+        echo "$BB/$1"
+    else
+        return 1
+    fi
+}
+
+for part in boot init_boot vendor_boot dtbo vbmeta; do
+    resolve_part "$part" >/dev/null || abort "Missing partition $part"
+done
+
+blkdev_size() { blockdev --getsize64 "$1" 2>/dev/null || echo 0; }
+[ "$(blkdev_size "$(resolve_part boot)")" -eq 100663296 ] || abort "boot size mismatch"
+[ "$(blkdev_size "$(resolve_part init_boot)")" -eq 8388608 ] || abort "init_boot size mismatch"
+[ "$(blkdev_size "$(resolve_part vendor_boot)")" -eq 100663296 ] || abort "vendor_boot size mismatch"
+[ "$(blkdev_size "$(resolve_part dtbo)")" -eq 16777216 ] || abort "dtbo size mismatch"
+[ "$(blkdev_size "$(resolve_part vbmeta)")" -eq 131072 ] || abort "vbmeta size mismatch"
+
+for file in boot.img init_boot.img vendor_boot.img dtbo.img vbmeta.img; do
+    unzip -l "$ZIPFILE" "$file" >/dev/null 2>&1 || abort "ZIP is missing $file"
+done
+
+# Overlays targeted the retired microSD rootfs; the rootfs now lives inside
+# the userdata partition and is updated by dd'ing the whole image, not here.
+if unzip -l "$ZIPFILE" ROOTFS-OVERLAY-SHA256SUMS >/dev/null 2>&1; then
+    abort "This ZIP carries a microSD rootfs overlay; that layout is gone. \
+Flash the boot bundle without an overlay and dd the userdata rootfs image."
+fi
+
+VBMETA_TARGET="$(resolve_part vbmeta)"
+VBMETA_READ_ONLY="$(blockdev --getro "$VBMETA_TARGET" 2>/dev/null || echo 1)"
+SKIP_VBMETA=0
+if [ "$VBMETA_READ_ONLY" = "1" ]; then
+    VBMETA_FLAGS="$(dd if="$VBMETA_TARGET" bs=1 skip=120 count=4 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+    [ "$VBMETA_FLAGS" = "00000002" ] || \
+        abort "vbmeta is read-only and does not have AVB flags 2"
+    SKIP_VBMETA=1
+    ui_print "vbmeta is read-only but already has AVB flags 2; preserving it."
+fi
+
+ui_print "Planned writes: boot, init_boot, vendor_boot and dtbo."
+[ "$SKIP_VBMETA" -eq 1 ] || ui_print "vbmeta is writable and will also be updated."
+ui_print "No filesystem or user-data partition will be touched."
+
+for part in boot init_boot vendor_boot dtbo; do
+    target="$(resolve_part "$part")" || abort "partition disappeared: $part"
+    ui_print "Writing $part..."
+    unzip -p "$ZIPFILE" "$part.img" | \
+        dd of="$target" bs=4M || abort "failed to write $part"
+done
+
+if [ "$SKIP_VBMETA" -eq 0 ]; then
+    ui_print "Writing vbmeta..."
+    unzip -p "$ZIPFILE" vbmeta.img | \
+        dd of="$VBMETA_TARGET" bs=4M || abort "failed to write vbmeta"
+else
+    ui_print "Keeping the existing read-only vbmeta."
+fi
+
+sync
+ui_print "---------------------------------------"
+ui_print " Images written. This ZIP does not reboot."
+ui_print " Keep the restore ZIP available in TWRP."
+ui_print " Reboot manually only when the userdata"
+ui_print " rootfs image is in place."
+ui_print "---------------------------------------"
+exit 0

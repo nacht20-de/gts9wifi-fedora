@@ -3,6 +3,9 @@ name: Kernel build
 on:
   workflow_dispatch:
 
+env:
+  KVER: 7.2.0-rc3-gts9wifi
+
 jobs:
   build-kernel:
     # Native arm64, full LLVM toolchain, same model as the pmOS kernel build.
@@ -12,48 +15,79 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build kernel RPM in Fedora aarch64 container
+      - name: Build kernel RPM, initramfs, boot bundle and TWRP zip
         run: |
           docker run --rm \
+            -e KVER \
             -v "$PWD:/work" -w /work \
             quay.io/fedora/fedora:44 \
             bash -lc '
               set -euxo pipefail
               dnf -y install make gcc clang lld llvm bc flex bison perl \
-                  openssl openssl-devel elfutils-libelf-devel python3 tar xz zstd \
-                  rpm-build ccache dtc findutils dwarves >/dev/null
+                  openssl openssl-devel elfutils-libelf-devel python3 tar xz \
+                  zstd rpm-build ccache dtc findutils dwarves dracut \
+                  cpio lz4 iproute >/dev/null
 
-              # Fetch the kernel tarball (cached by hash across runs).
+              # --- kernel ---
               mkdir -p /tmp/kcache
               if [ ! -f /tmp/kcache/linux-7.2-rc3.tar.gz ]; then
                 curl -sfL https://git.kernel.org/torvalds/t/linux-7.2-rc3.tar.gz \
                   -o /tmp/kcache/linux-7.2-rc3.tar.gz
               fi
-
-              # Prepare the tree exactly like the pmOS APKBUILD.
               tar xf /tmp/kcache/linux-7.2-rc3.tar.gz
               cd linux-7.2-rc3
               bash /work/kernel/prepare.sh .
-              # Distinguish our builds from the pmOS kernel on the same device.
               echo "-gts9wifi" > localversion-gts9wifi
               cd ..
-
-              # Feed the prepared tree to rpmbuild as Source0.
               mv linux-7.2-rc3 linux-prepared
               tar czf linux-prepared.tar.gz linux-prepared
-              mkdir -p ~/rpmbuild/SOURCES ~/rpmbuild/RPMS
+              rm -rf linux-prepared
+
+              mkdir -p ~/rpmbuild/SOURCES out-kernel out-bundle out-twrp
               cp linux-prepared.tar.gz ~/rpmbuild/SOURCES/
               rpmbuild -bb --define "kversion 7.2.0-rc3" /work/kernel/kernel.spec
+              cp ~/rpmbuild/RPMS/aarch64/*.rpm out-kernel/
 
-              cp ~/rpmbuild/RPMS/aarch64/*.rpm /work/out-kernel/ 2>/dev/null || \
-                { mkdir -p /work/out-kernel && cp ~/rpmbuild/RPMS/aarch64/*.rpm /work/out-kernel/; }
+              # --- initramfs: install the RPM into the container, dracut ours ---
+              dnf -y install out-kernel/*.rpm
+              cp -a /work/boot/dracut/90gts9wifi-usbnet /usr/lib/dracut/modules.d/
+              cp /work/boot/dracut/dracut.conf.d/gts9wifi.conf /usr/lib/dracut/dracut.conf.d/
+              dracut --kver "$KVER" --force /tmp/initramfs.img
+
+              # --- boot bundle ---
+              bash /work/boot/build-bundle.sh \
+                --vmlinuz /boot/vmlinuz-"$KVER" \
+                --dtb "/boot/dtbs-7.2.0-rc3-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb" \
+                --initramfs /tmp/initramfs.img \
+                --cmdline /work/boot/cmdline.txt \
+                --bootconfig /work/boot/bootconfig.txt \
+                --out out-bundle
+
+              # --- TWRP zip ---
+              python3 /work/tools/make-twrp-zip.py out-bundle \
+                out-twrp/gts9wifi-fedora-"$KVER".zip --project /work
             '
-        env:
-          CCACHE_DIR: /tmp/.ccache
 
       - name: Upload kernel RPM
         uses: actions/upload-artifact@v4
         with:
           name: linux-gts9wifi-rpm
           path: out-kernel/*.rpm
+          if-no-files-found: error
+
+      - name: Upload boot bundle images
+        uses: actions/upload-artifact@v4
+        with:
+          name: gts9wifi-boot-bundle
+          path: |
+            out-bundle/*.img
+            out-bundle/SHA256SUMS
+            out-bundle/BUILD-METADATA.txt
+          if-no-files-found: error
+
+      - name: Upload TWRP flash zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: gts9wifi-twrp-zip
+          path: out-twrp/*.zip
           if-no-files-found: error
