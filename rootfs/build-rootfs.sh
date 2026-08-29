@@ -51,6 +51,7 @@ dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
     qrtr \
     alsa-ucm alsa-utils dtc \
     libqmi libqrtr-glib protobuf-c libmbim \
+    systemd-pam \
     linux-firmware \
     e2fsprogs kmod
 
