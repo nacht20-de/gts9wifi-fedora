@@ -1,0 +1,37 @@
+#!/bin/sh
+# Create the RNDIS USB gadget and configure the debug address.
+# With no initramfs on this port the gadget has to be set up from the real
+# root; the pmOS initramfs used to do this before switch_root.
+set -u
+
+G=/sys/kernel/config/usb_gadget/g1
+
+modprobe configfs 2>/dev/null
+modprobe libcomposite 2>/dev/null
+modprobe usb_f_rndis 2>/dev/null
+
+[ -d /sys/kernel/config/usb_gadget ] || mount -t configfs configfs /sys/kernel/config 2>/dev/null
+[ -d /sys/kernel/config/usb_gadget ] || exit 0
+
+if [ ! -d "$G" ]; then
+    mkdir -p "$G/functions/rndis.usb0" \
+             "$G/configs/b.1/strings/0x409" \
+             "$G/strings/0x409" || exit 0
+    echo "fedora-gts9wifi" > "$G/strings/0x409/serialnumber" 2>/dev/null
+    ln -sf "$G/functions/rndis.usb0" "$G/configs/b.1" 2>/dev/null
+fi
+
+UDC=$(ls /sys/class/udc 2>/dev/null | head -1)
+if [ -n "$UDC" ] && [ "$(cat "$G/UDC" 2>/dev/null)" != "$UDC" ]; then
+    echo "$UDC" > "$G/UDC" 2>/dev/null
+fi
+
+# wait for usb0 to appear, then force the debug address deterministically
+i=0
+while [ $i -lt 30 ] && ! ip link show usb0 >/dev/null 2>&1; do
+    sleep 1
+    i=$((i + 1))
+done
+ip link set usb0 up 2>/dev/null
+ip addr replace 172.16.42.1/24 dev usb0 2>/dev/null || true
+exit 0
