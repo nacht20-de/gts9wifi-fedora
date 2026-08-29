@@ -33,7 +33,7 @@ jobs:
               # Prepare the tree exactly like the pmOS APKBUILD.
               tar xf /tmp/kcache/linux-7.2-rc3.tar.gz
               cd linux-7.2-rc3
-              /work/kernel/prepare.sh .
+              bash /work/kernel/prepare.sh .
               # Distinguish our builds from the pmOS kernel on the same device.
               echo "-gts9wifi1" > localversion-gts9wifi
               cd ..
