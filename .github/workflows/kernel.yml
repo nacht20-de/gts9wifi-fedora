@@ -35,7 +35,7 @@ jobs:
               cd linux-7.2-rc3
               bash /work/kernel/prepare.sh .
               # Distinguish our builds from the pmOS kernel on the same device.
-              echo "-gts9wifi1" > localversion-gts9wifi
+              echo "-gts9wifi" > localversion-gts9wifi
               cd ..
 
               # Feed the prepared tree to rpmbuild as Source0.
