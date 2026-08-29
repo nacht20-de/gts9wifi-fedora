@@ -21,25 +21,25 @@ jobs:
               set -euxo pipefail
               dnf -y install make gcc clang lld llvm bc flex bison perl \
                   openssl-devel elfutils-libelf-devel python3 tar xz zstd \
-                  rpm-build ccache dtc findutils >/dev/null
+                  rpm-build ccache dtc findutils dwarves >/dev/null
 
               # Fetch the kernel tarball (cached by hash across runs).
               mkdir -p /tmp/kcache
-              if [ ! -f /tmp/kcache/linux-7.2.0-rc3.tar.gz ]; then
-                curl -sfL https://git.kernel.org/torvalds/t/linux-7.2.0-rc3.tar.gz \
-                  -o /tmp/kcache/linux-7.2.0-rc3.tar.gz
+              if [ ! -f /tmp/kcache/linux-7.2-rc3.tar.gz ]; then
+                curl -sfL https://git.kernel.org/torvalds/t/linux-7.2-rc3.tar.gz \
+                  -o /tmp/kcache/linux-7.2-rc3.tar.gz
               fi
 
               # Prepare the tree exactly like the pmOS APKBUILD.
-              tar xf /tmp/kcache/linux-7.2.0-rc3.tar.gz
-              cd linux-7.2.0-rc3
+              tar xf /tmp/kcache/linux-7.2-rc3.tar.gz
+              cd linux-7.2-rc3
               /work/kernel/prepare.sh .
               # Distinguish our builds from the pmOS kernel on the same device.
               echo "-gts9wifi1" > localversion-gts9wifi
               cd ..
 
               # Feed the prepared tree to rpmbuild as Source0.
-              mv linux-7.2.0-rc3 linux-prepared
+              mv linux-7.2-rc3 linux-prepared
               tar czf linux-prepared.tar.gz linux-prepared
               mkdir -p ~/rpmbuild/SOURCES ~/rpmbuild/RPMS
               cp linux-prepared.tar.gz ~/rpmbuild/SOURCES/
