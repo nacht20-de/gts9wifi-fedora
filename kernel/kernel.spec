@@ -3,6 +3,7 @@
 # and the result is fed in as Source0).  Translation of the postmarketOS
 # APKBUILD package() to RPM.
 %define flavor gts9wifi
+%define debug_package %{nil}
 %define kversion 7.2.0-rc3
 
 Name:           linux-%{flavor}
@@ -44,6 +45,8 @@ make ARCH=arm64 LLVM=1 \
      INSTALL_MOD_PATH=%{buildroot}/usr \
      INSTALL_DTBS_PATH=%{buildroot}/boot/dtbs-%{kversion}-%{flavor} \
      INSTALL_MOD_STRIP=1
+
+rm -f %{buildroot}/usr/lib/modules/*/build %{buildroot}/usr/lib/modules/*/source
 
 %files
 %license COPYING
