@@ -1,0 +1,11 @@
+[Unit]
+Description=Revive the WCN6855 Bluetooth controller after a power sequencer cycle
+# Not enabled anywhere on purpose: start manually with
+#   systemctl start gts9wifi-bt-revive
+# when hci0 has disappeared (btmgmt shows no controllers) after WiFi work
+# cycled the shared WCN power sequencer.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gts9wifi-bt-revive
+TimeoutStartSec=120

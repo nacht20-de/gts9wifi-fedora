@@ -52,16 +52,18 @@ local-assets).
 - hexagonrpcd 0.4.0 built from source with the port's two Samsung patches
   (large FastRPC inbufs, sensor-registry writes onto the stock `persist`
   partition) — specs/hexagonrpcd-samsung/
-- iio-sensor-proxy 3.9 built with libssc + the slow-discovery patch
-- qrtr, pd-mapper, libssc (Fedora repos); bluez with the EFS BD-address
-  drop-in
+- libssc 0.4.4 and pd-mapper 1.1 built from source (neither is in Fedora);
+  iio-sensor-proxy 3.9 built against libssc + the slow-discovery patch
+- qrtr (Fedora repo); bluez; per-boot BD-address + DTB memory-carveout
+  provisioning (`bt-provision`, `mem-reclaim`) patching the eMMC boot images
+  idempotently
 - ALSA UCM for the 4× CS35L45 speaker setup (speaker volume stays capped at
   −19 dB until speaker-protection firmware works — keep it that way)
-- Device services translated from the pmOS port: sensor-SSC recovery,
-  panel cold-boot recovery, BT address provisioning, rootfs grow
+- Device services translated from the pmOS port: sensor-SSC recovery + resume
+  hooks, panel cold-boot recovery, BT revive helper, rootfs grow
 - Runtime mounts of stock Android partitions: `persist` (rw, sensor/Wi-Fi
-  calibration) and `dsp`; eMMC partitions are never written except the
-  idempotent BD-address DTB patch on `boot`/`vendor_boot`
+  calibration), `dsp`, and `apnhlos` firmware; eMMC boot images are only
+  touched by the idempotent BD-address/carveout DTB patches
 
 ## Roadmap
 

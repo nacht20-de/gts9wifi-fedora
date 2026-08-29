@@ -44,16 +44,41 @@ dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
     @core \
     NetworkManager NetworkManager-wifi wpa_supplicant \
     openssh-server openssh-clients \
-    sudo chrony zram-generator \
+    sudo chrony zram-generator python3 \
     bluez bluez-tools \
-    qrtr pd-mapper libssc \
+    qrtr \
     alsa-ucm alsa-utils \
     linux-firmware \
     e2fsprogs kmod
 
 echo ">>> Installing native build dependencies (build container only)"
-dnf -y -q install meson ninja-build gcc git curl tar patch "pkgconf-pkg-config" \
-    glib2-devel libgudev-devel systemd-devel libssc-devel kmod
+dnf -y -q install meson ninja-build gcc git curl tar patch make \
+    "pkgconf-pkg-config" \
+    glib2-devel libgudev-devel systemd-devel kmod \
+    libqmi-devel protobuf-c-devel qrtr-devel xz-devel \
+    python3-devel python3-protobuf
+
+echo ">>> Building libssc 0.4.4 (not in Fedora)"
+# Same source the pmOS port uses; provides libssc.so + ssccli.
+sscdir="$(mktemp -d)"
+curl -sfL "https://codeberg.org/DylanVanAssche/libssc/archive/v0.4.4.tar.gz" \
+    | tar xz -C "$sscdir" --strip-components=1
+meson setup "$sscdir/build" "$sscdir" -Dprefix=/usr -Db_lto=true
+meson compile -C "$sscdir/build"
+DESTDIR="$sscdir/staging" meson install --no-rebuild -C "$sscdir/build"
+cp -a "$sscdir/staging/." "$rootfs/"
+# Let the iio-sensor-proxy build below find the staged libssc.
+export PKG_CONFIG_PATH="$sscdir/staging/usr/lib64/pkgconfig:$sscdir/staging/usr/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+
+echo ">>> Building pd-mapper 1.1 (not in Fedora)"
+# Binary only: the sm8550 ADSP boots without service-registry JSONs (verified
+# on the pmOS device).  Ships its own systemd unit.
+pdmdir="$(mktemp -d)"
+curl -sfL "https://github.com/andersson/pd-mapper/archive/refs/tags/v1.1.tar.gz" \
+    | tar xz -C "$pdmdir" --strip-components=1
+make -C "$pdmdir" -j"$(nproc)" prefix=/usr
+make -C "$pdmdir" install prefix=/usr DESTDIR="$pdmdir/staging"
+cp -a "$pdmdir/staging/." "$rootfs/"
 
 echo ">>> Building hexagonrpcd 0.4.0 with Samsung patches"
 # Upstream tag + the two Samsung patches from the pmOS port (large FastRPC
@@ -105,8 +130,12 @@ cat > "$rootfs/etc/fstab" <<EOF
 UUID=$root_uuid /     ext4 defaults 0 0
 UUID=$boot_uuid /boot ext2 defaults,nodev,nosuid,noexec 0 0
 EOF
-echo gts9-fedora > "$rootfs/etc/hostname"
-sed -i 's/^SELINUX=.*/SELINUX=permissive/' "$rootfs/etc/selinux/config"
+echo "gts9-fedora" > "$rootfs/etc/hostname"
+if [ -f "$rootfs/etc/selinux/config" ]; then
+    sed -i 's/^SELINUX=.*/SELINUX=permissive/' "$rootfs/etc/selinux/config"
+else
+    echo "    WARN: /etc/selinux/config not found; SELinux left at default" >&2
+fi
 
 # USB gadget network comes up configured by the pmOS initramfs; keep the
 # address after switch_root so first-boot debugging works over SSH.
@@ -140,17 +169,21 @@ fi
 
 echo ">>> Enabling services"
 for unit in \
-    sshd NetworkManager \
+    sshd NetworkManager qrtr-ns \
     hexagonrpcd-sdsp hexagonrpcd-adsp-rootpd hexagonrpcd-adsp-sensorspd \
+    pd-mapper \
     gts9wifi-wait-sensor-proxy \
-    gts9wifi-bluetooth-address bluetooth \
+    gts9wifi-bt-provision bluetooth gts9wifi-mem-reclaim \
     gts9wifi-panel-coldboot-recover \
     gts9wifi-grow-rootfs \
-    mnt-vendor-persist.mount vendor-dsp.mount
+    mnt-vendor-persist.mount vendor-dsp.mount vendor-firmware_mnt.mount
 do
     systemctl --root="$rootfs" enable "$unit" >/dev/null 2>&1 \
         || echo "    WARN: unit not found (check name after hexagonrpcd patch): $unit"
 done
+# Not enabled, matching the pmOS port: gts9wifi-adsp-boot.service is pulled in
+# via the hexagonfs drop-in's Requires=, gts9wifi-bt-revive.service is started
+# by hand when the WCN sequencer takes hci0 down.
 # TODO(phase-1.5): vendor make-dynpart-mappings and enable
 # gts9wifi-android-parts.service + vendor.mount (super -> erofs /vendor).
 

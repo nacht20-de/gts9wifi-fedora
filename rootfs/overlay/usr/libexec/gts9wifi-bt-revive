@@ -1,0 +1,57 @@
+#!/bin/sh
+# Revive hci0 after the shared WCN power sequencer has been cycled (e.g.
+# by ath11k rework): rebind the serdev while holding BT_EN (tlmm gpio 204)
+# high so the QCA setup does not lose the enable edge to the sequencer.
+set -eu
+
+drv=/sys/bus/serial/drivers/hci_uart_qca
+dev=serial0-0
+
+if [ -e "$drv/$dev" ]; then
+	echo "$dev" > "$drv/unbind"
+	sleep 4
+fi
+
+python3 - <<'EOF' &
+import errno, fcntl, os, struct, sys, time
+
+# gpio cdev v2: request tlmm gpio 204 as output-high and hold the line
+# request open across the serdev rebind. With wcn6855-pmu bound the
+# pwrseq owns the line and re-asserts it during bind itself, so EBUSY
+# just means the hold is not needed.
+GPIO_V2_GET_LINE_IOCTL = 0xC250B407
+FLAG_OUTPUT = 1 << 1
+ATTR_OUTPUT_VALUES = 2
+
+offsets = struct.pack('64I', 204, *([0] * 63))
+consumer = b'gts9wifi-bt-revive'.ljust(32, b'\0')
+attr = struct.pack('IIQQ', ATTR_OUTPUT_VALUES, 0, 1, 1)
+config = struct.pack('QI20x', FLAG_OUTPUT, 1) + attr + bytes(24 * 9)
+tail = struct.pack('II20xi', 1, 0, 0)
+req = bytearray(offsets + consumer + config + tail)
+
+chip = os.open('/dev/gpiochip3', os.O_RDWR)
+try:
+    fcntl.ioctl(chip, GPIO_V2_GET_LINE_IOCTL, req)
+except OSError as e:
+    if e.errno != errno.EBUSY:
+        raise
+    print('gpio 204 held by the kernel, skipping the manual hold')
+    sys.exit(0)
+time.sleep(20)
+EOF
+hold=$!
+
+sleep 0.5
+echo "$dev" > "$drv/bind"
+
+for _ in $(seq 1 150); do
+	btmgmt info 2>/dev/null | grep -q '^hci0:' && break
+	btmgmt config 2>/dev/null | grep -q '^hci0:' && break
+	sleep 0.1
+done
+
+# The kernel reapplies the native address from the DT during setup.
+systemctl restart bluetooth
+
+wait "$hold"

@@ -1,0 +1,8 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+
+case "$1" in
+	post)
+		/usr/libexec/gts9wifi-usb-host-resume || true
+		;;
+esac

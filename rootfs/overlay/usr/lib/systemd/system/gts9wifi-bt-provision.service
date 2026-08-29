@@ -1,0 +1,9 @@
+[Unit]
+Description=Provision the native Samsung Bluetooth address into the boot DTBs
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gts9wifi-bt-provision
+
+[Install]
+WantedBy=multi-user.target

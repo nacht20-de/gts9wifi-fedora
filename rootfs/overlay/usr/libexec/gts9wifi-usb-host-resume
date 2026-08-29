@@ -1,0 +1,17 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# The SM8550 DWC3 host can report a Host System Error when the board returns
+# from the platform-level suspend cycle used to recover the display.  Recreate
+# xHCI only when this port was already the USB data host; device/RNDIS
+# connections are deliberately left untouched.
+set -eu
+
+role=/sys/class/usb_role/a600000.usb-role-switch/role
+
+[ -w "$role" ] || exit 0
+[ "$(cat "$role")" = host ] || exit 0
+
+echo device > "$role"
+sleep 1
+echo host > "$role"
