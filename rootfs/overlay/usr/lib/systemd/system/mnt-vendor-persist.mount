@@ -1,0 +1,11 @@
+[Unit]
+Description=Stock persist partition (sensor and Wi-Fi calibration)
+
+[Mount]
+What=/dev/disk/by-partlabel/persist
+Where=/mnt/vendor/persist
+Type=ext4
+Options=rw,nosuid,nodev,noexec
+
+[Install]
+WantedBy=multi-user.target

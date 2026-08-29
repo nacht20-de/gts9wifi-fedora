@@ -1,0 +1,38 @@
+SSC discovery can take tens of seconds.  g_bus_own_name() publishes the name
+before name_acquired_handler() finishes discovery, so clients can cache
+HasAccelerometer=false and never receive an update: the normal notification
+path only targets clients which already claimed a sensor, but a compositor
+cannot know that it should claim while its cached availability is false.
+
+Broadcast the complete property set after initial discovery.  D-Bus properties
+are public already; later measurements remain restricted to claimed clients.
+
+diff --git a/src/iio-sensor-proxy.c b/src/iio-sensor-proxy.c
+index 2da80bb..66490a7 100644
+--- a/src/iio-sensor-proxy.c
++++ b/src/iio-sensor-proxy.c
+@@ -238,8 +238,6 @@ send_dbus_event_for_client (SensorData     *data,
+ 	GVariantBuilder props_builder;
+ 	GVariant *props_changed = NULL;
+ 
+-	g_return_if_fail (destination_bus_name != NULL);
+-
+ 	g_variant_builder_init (&props_builder, G_VARIANT_TYPE ("a{sv}"));
+ 
+ 	if (mask & PROP_HAS_ACCELEROMETER) {
+@@ -784,8 +782,13 @@ name_acquired_handler (GDBusConnection *connection,
+ 	if (!any_sensors_left (data))
+ 		goto bail;
+ 
+-	send_dbus_event (data, PROP_ALL);
+-	send_dbus_event (data, PROP_ALL_COMPASS);
++	/*
++	 * Slow backends may finish discovery after clients have already cached
++	 * the empty property set.  A NULL destination broadcasts the availability
++	 * update; per-reading updates remain unicast to clients that claimed them.
++	 */
++	send_dbus_event_for_client (data, NULL, PROP_ALL);
++	send_dbus_event_for_client (data, NULL, PROP_ALL_COMPASS);
+ 	return;
+ 
+ bail:

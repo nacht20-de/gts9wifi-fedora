@@ -1,0 +1,41 @@
+#!/bin/sh
+set -eu
+
+efs=/dev/disk/by-partlabel/efs
+mountpoint=/run/gts9wifi-efs-ro
+
+# The service may be restarted after hci0 has already left the unconfigured
+# list; in that case the native address is active and no write is needed.
+if btmgmt info 2>/dev/null | grep -q '^hci0:'; then
+	exit 0
+fi
+
+for _ in $(seq 1 100); do
+	[ -b "$efs" ] && break
+	sleep 0.1
+done
+[ -b "$efs" ]
+
+mkdir -p "$mountpoint"
+cleanup() {
+	mountpoint -q "$mountpoint" && umount "$mountpoint" || true
+}
+trap cleanup EXIT
+mount -o ro,noload "$efs" "$mountpoint"
+address=$(tr -d '\r\n[:space:]' < "$mountpoint/bluetooth/bt_addr")
+
+case "$address" in
+	[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]) ;;
+	*) echo 'Invalid native Bluetooth address in EFS' >&2; exit 1 ;;
+esac
+
+cleanup
+trap - EXIT
+
+for _ in $(seq 1 100); do
+	btmgmt config 2>/dev/null | grep -q '^hci0:' && break
+	sleep 0.1
+done
+
+btmgmt config 2>/dev/null | grep -q '^hci0:'
+btmgmt --index 0 public-addr "$address" >/dev/null

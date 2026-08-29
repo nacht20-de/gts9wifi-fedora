@@ -1,0 +1,25 @@
+[Unit]
+Description=Grow the root filesystem to fill the microSD
+Documentation=https://github.com/agcarbajo/postmarketos-galaxy-tab-s9-ultra
+ConditionPathExists=!/var/lib/gts9wifi-rootfs-grown
+
+# Deliberately NOT before local-fs.target.  Rewriting the partition table makes
+# udev drop and re-add every partition on the disk, and systemd was at that
+# moment waiting for /dev/disk/by-uuid/... of the boot partition: the symlink
+# vanished under it, the device unit timed out after 90 s, local-fs.target
+# failed and graphical.target was never reached.  The screen stayed black and
+# the display manager never even started.
+#
+# ext4 resizes online, so there is nothing to gain from running early.
+After=local-fs.target
+Wants=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/gts9wifi-grow-rootfs
+# Growing is a convenience, never a reason to fail the boot.
+SuccessExitStatus=0 1
+
+[Install]
+WantedBy=multi-user.target

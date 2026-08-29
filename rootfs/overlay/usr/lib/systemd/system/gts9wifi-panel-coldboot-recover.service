@@ -1,0 +1,16 @@
+[Unit]
+Description=Recover the SM-X710 panel after a cold boot
+Documentation=https://github.com/agcarbajo/postmarketos-galaxy-tab-s9-ultra
+ConditionPathExists=/sys/power/pm_test
+After=local-fs.target
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/libexec/gts9wifi-panel-coldboot-recover
+TimeoutStartSec=30
+
+[Install]
+WantedBy=graphical.target

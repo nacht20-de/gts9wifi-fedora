@@ -1,0 +1,76 @@
+#!/bin/sh
+# Grow the root partition and filesystem to fill whatever card it was written
+# to, then get out of the way.
+#
+# The rootfs image is built on a PC with no idea how big the target microSD is,
+# so it is sized to the minimum that fits.  Written to a 32 GB card that left
+# 27 GB unreachable, which is how this port ended up with a full disk and a
+# LightDM crash loop.  Sizing the image to one particular card would just move
+# the problem, so the growing happens on the device, once, at first boot.
+#
+# Everything here is derived from the running system: the root device, its disk
+# and its partition number.  No device name is hard-coded.
+set -eu
+
+STAMP=/var/lib/gts9wifi-rootfs-grown
+MIN_FREE_SECTORS=131072   # 64 MiB; below this it is not worth repartitioning
+
+log() { echo "gts9wifi-grow-rootfs: $*"; }
+
+[ -e "$STAMP" ] && { log "already done"; exit 0; }
+
+root_src=$(findmnt -no SOURCE /)
+case "$root_src" in
+	/dev/*) ;;
+	*) log "root is not a block device ($root_src); nothing to grow"; exit 0 ;;
+esac
+
+root_name=$(basename "$root_src")
+part_num=$(cat "/sys/class/block/$root_name/partition" 2>/dev/null || echo "")
+disk_name=$(lsblk -no PKNAME "$root_src" 2>/dev/null || echo "")
+
+if [ -z "$part_num" ] || [ -z "$disk_name" ]; then
+	log "cannot resolve the parent disk of $root_src; nothing to grow"
+	exit 0
+fi
+disk="/dev/$disk_name"
+
+fstype=$(findmnt -no FSTYPE /)
+if [ "$fstype" != "ext4" ]; then
+	log "root is $fstype, not ext4; refusing to resize"
+	exit 0
+fi
+
+# How many sectors sit unused after the root partition?
+disk_sectors=$(cat "/sys/class/block/$disk_name/size")
+part_start=$(cat "/sys/class/block/$root_name/start")
+part_sectors=$(cat "/sys/class/block/$root_name/size")
+# Leave room for the GPT backup header at the very end (33 sectors).
+free_sectors=$(( disk_sectors - (part_start + part_sectors) - 33 ))
+
+log "$root_src is partition $part_num of $disk"
+log "disk ${disk_sectors}s, partition ends at $(( part_start + part_sectors ))s, ${free_sectors}s free"
+
+if [ "$free_sectors" -lt "$MIN_FREE_SECTORS" ]; then
+	log "less than 64 MiB free; nothing worth doing"
+	mkdir -p "$(dirname "$STAMP")" && : > "$STAMP"
+	exit 0
+fi
+
+# ",+" keeps the start and takes every remaining sector.  sfdisk also relocates
+# the GPT backup header, which still sits where the smaller image ended - a
+# stale backup header at the end of a larger card makes different kernels
+# disagree about the layout and read the filesystems at the wrong offsets.
+log "growing partition $part_num to the end of $disk"
+echo ',+' | sfdisk --force --no-reread -N "$part_num" "$disk"
+
+# Tell the kernel about the new size without unmounting anything, then let udev
+# finish re-creating the /dev/disk/by-* symlinks it drops while doing so.
+partx -u "$disk" 2>/dev/null || partprobe "$disk" 2>/dev/null || true
+udevadm settle --timeout=30 2>/dev/null || true
+
+log "growing the ext4 filesystem (online)"
+resize2fs "$root_src"
+
+mkdir -p "$(dirname "$STAMP")" && : > "$STAMP"
+log "done: $(df -h / | tail -1)"

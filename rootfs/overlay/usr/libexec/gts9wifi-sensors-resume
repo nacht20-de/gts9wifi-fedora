@@ -1,0 +1,31 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# The upstream hexagonrpcd sensorspd unit intentionally conflicts with
+# suspend.target and is stopped before deep sleep.  Restart both the FastRPC
+# bridge after resume and wait until SSC accepts a fresh client.  libssc 0.4.4
+# cannot reconnect an existing QMI client after SSC is power-collapsed, so the
+# proxy must then be restarted.  The board's Mutter package deliberately
+# reclaims accelerometer access whenever a new SensorProxy owner appears.
+set -eu
+
+# A service may still be marked active after a platform PM test while its
+# FastRPC/QMI client is stale.  A restart is cheap and gives SSC one clean
+# attachment both at boot and after a real resume.
+systemctl restart hexagonrpcd-adsp-sensorspd.service
+
+attempt=0
+while [ "$attempt" -lt 45 ]; do
+	attempt=$((attempt + 1))
+	output=$(timeout 4 ssccli --sensor accelerometer --timeout 2 2>&1 || true)
+	if printf '%s\n' "$output" |
+	   grep -q 'Accelerometer sensor measurement:'; then
+		systemctl restart iio-sensor-proxy.service
+		echo "gts9wifi-sensors-resume: SSC ready after attempt $attempt; restarted SensorProxy for a fresh QMI client"
+		exit 0
+	fi
+	sleep 2
+done
+
+echo "gts9wifi-sensors-resume: SSC did not recover after resume" >&2
+exit 1

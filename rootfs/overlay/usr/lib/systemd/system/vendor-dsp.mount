@@ -1,0 +1,14 @@
+[Unit]
+Description=Stock DSP libraries partition
+DefaultDependencies=no
+Conflicts=umount.target
+Before=umount.target
+
+[Mount]
+What=/dev/disk/by-partlabel/dsp
+Where=/vendor/dsp
+Type=ext4
+Options=ro
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,227 @@
+From: Galaxy Tab S9 port contributors <noreply@localhost>
+Subject: [PATCH] hexagonrpcd: listener: large input buffers, extended methods
+
+Three reverse-tunnel protocol gaps that kill the sensorspd listener as
+soon as Samsung's SM8550 sensor firmware starts its registry sync:
+
+- adsp_listener_next2 only fills the input buffers up to the capacity we
+  pass (256 bytes) and reports the full encoded size.  Fetch the
+  remainder with adsp_listener_get_in_bufs2 (method 5: in ctx, in
+  offset, rout bufs, rout lenReq), the same way the downstream fastrpc
+  listener does, and decode from the reassembled buffer.
+
+- The 5-bit method number field cannot hold IDs above 30.  QAIC encodes
+  those as method 31 with the real method ID in the first 32-bit input
+  argument (see apps_std_skel.c in fastrpc.git).  Decode that before
+  dispatch; apps_std_stat (31) is unaffected since both fields match.
+
+- An unsupported handle, method or argument mismatch tore down the whole
+  listener loop.  Reply to the DSP with the error and keep listening
+  instead, like the downstream listener does; only allocation failures
+  and transport errors remain fatal.
+
+diff --git a/hexagonrpcd/interfaces/adsp_listener.def b/hexagonrpcd/interfaces/adsp_listener.def
+index 4f521c0..1620471 100644
+--- a/hexagonrpcd/interfaces/adsp_listener.def
++++ b/hexagonrpcd/interfaces/adsp_listener.def
+@@ -28,5 +28,6 @@
+ 
+ HEXAGONRPC_DEFINE_REMOTE_METHOD(3, adsp_listener_init2, 0, 0, 0, 0)
+ HEXAGONRPC_DEFINE_REMOTE_METHOD(4, adsp_listener_next2, 2, 1, 4, 1)
++HEXAGONRPC_DEFINE_REMOTE_METHOD(5, adsp_listener_get_in_bufs2, 2, 0, 1, 1)
+ 
+ #endif /* INTERFACE_ADSP_LISTENER_DEF */
+diff --git a/hexagonrpcd/listener.c b/hexagonrpcd/listener.c
+index 932c54d..5d20bbc 100644
+--- a/hexagonrpcd/listener.c
++++ b/hexagonrpcd/listener.c
+@@ -24,6 +24,7 @@
+ #include <libhexagonrpc/interfaces/remotectl.def>
+ #include <stddef.h>
+ #include <stdio.h>
++#include <string.h>
+ 
+ #include "aee_error.h"
+ #include "interfaces/adsp_listener.def"
+@@ -56,6 +57,19 @@ static int adsp_listener_next2(int fd,
+ 			inbufs_size, inbufs);
+ }
+ 
++static int adsp_listener_get_in_bufs2(int fd,
++				      uint32_t rctx,
++				      uint32_t offset,
++				      uint32_t *len_req,
++				      uint32_t bufs_size, void *bufs)
++{
++	return fastrpc2(&adsp_listener_get_in_bufs2_def, fd, ADSP_LISTENER_HANDLE,
++			rctx,
++			offset,
++			len_req,
++			bufs_size, bufs);
++}
++
+ static struct fastrpc_io_buffer *allocate_outbufs(const struct fastrpc_function_def_interp2 *def,
+ 						  uint32_t *first_inbuf)
+ {
+@@ -143,12 +157,18 @@ static int return_for_next_invoke(int fd,
+ {
+ 	struct fastrpc_decoder_context *ctx;
+ 	char inbufs[256];
++	char *large_inbufs = NULL;
++	char *buf = inbufs;
+ 	char *outbufs = NULL;
+ 	uint32_t inbufs_len;
++	uint32_t len_req;
+ 	uint32_t outbufs_len;
+ 	int ret;
+ 
+-	outbufs_len = outbufs_calculate_size(REMOTE_SCALARS_OUTBUFS(*sc), returned);
++	if (returned != NULL)
++		outbufs_len = outbufs_calculate_size(REMOTE_SCALARS_OUTBUFS(*sc), returned);
++	else
++		outbufs_len = 0;
+ 
+ 	if (outbufs_len) {
+ 		outbufs = malloc(outbufs_len);
+@@ -174,33 +194,65 @@ static int return_for_next_invoke(int fd,
+ 		goto err_free_outbufs;
+ 	}
+ 
++	/*
++	 * The first invocation only returns up to the given capacity of input
++	 * buffers. Fetch the remainder before decoding if they did not fit.
++	 */
+ 	if (inbufs_len > 256) {
+-		fprintf(stderr, "Large (>256B) input buffers aren't implemented\n");
+-		ret = -1;
+-		goto err_free_outbufs;
++		large_inbufs = malloc(inbufs_len);
++		if (large_inbufs == NULL) {
++			perror("Could not allocate large input buffer");
++			ret = -1;
++			goto err_free_outbufs;
++		}
++
++		memcpy(large_inbufs, inbufs, 256);
++
++		ret = adsp_listener_get_in_bufs2(fd, *rctx, 256, &len_req,
++						 inbufs_len - 256,
++						 &large_inbufs[256]);
++		if (ret) {
++			if (ret == -1)
++				perror("Could not fetch large input buffers");
++			else
++				fprintf(stderr, "Could not fetch large input buffers: %d\n", ret);
++
++			goto err_free_large_inbufs;
++		}
++
++		if (len_req > inbufs_len) {
++			fprintf(stderr, "Large input buffers grew from %" PRIu32 " to %" PRIu32 " bytes\n",
++					inbufs_len, len_req);
++			ret = -1;
++			goto err_free_large_inbufs;
++		}
++
++		buf = large_inbufs;
+ 	}
+ 
+ 	ctx = inbuf_decode_start(*sc);
+ 	if (!ctx) {
+ 		perror("Could not start decoding");
+ 		ret = -1;
+-		goto err_free_outbufs;
++		goto err_free_large_inbufs;
+ 	}
+ 
+-	ret = inbuf_decode(ctx, inbufs_len, inbufs);
++	ret = inbuf_decode(ctx, inbufs_len, buf);
+ 	if (ret) {
+ 		perror("Could not decode");
+-		goto err_free_outbufs;
++		goto err_free_large_inbufs;
+ 	}
+ 
+ 	if (!inbuf_decode_is_complete(ctx)) {
+ 		fprintf(stderr, "Expected more input buffers\n");
+ 		ret = -1;
+-		goto err_free_outbufs;
++		goto err_free_large_inbufs;
+ 	}
+ 
+ 	*decoded = inbuf_decode_finish(ctx);
+ 
++err_free_large_inbufs:
++	free(large_inbufs);
+ err_free_outbufs:
+ 	free(outbufs);
+ 	return ret;
+@@ -220,23 +272,40 @@ static int invoke_requested_procedure(size_t n_ifaces,
+ 	uint32_t method = REMOTE_SCALARS_METHOD(sc);
+ 	int ret;
+ 
++	*returned = NULL;
++
+ 	if (sc & 0xff) {
+ 		fprintf(stderr, "Handles are not supported, but got %u in, %u out\n",
+ 				(sc & 0xf0) >> 4, sc & 0xf);
+ 		*result = AEE_EBADPARM;
+-		return 1;
++		return 0;
+ 	}
+ 
+ 	if (handle >= n_ifaces) {
+ 		fprintf(stderr, "Unsupported handle: %u\n", handle);
+ 		*result = AEE_EUNSUPPORTED;
+-		return 1;
++		return 0;
++	}
++
++	/*
++	 * The method number field is too small for some interfaces. Methods
++	 * beyond it are sent as method 31 with the real method ID in the first
++	 * 32-bit input argument.
++	 */
++	if (method == 31) {
++		if (REMOTE_SCALARS_INBUFS(sc) < 1 || decoded[0].s < 4) {
++			fprintf(stderr, "Missing extended method ID (%08x)\n", sc);
++			*result = AEE_EBADPARM;
++			return 0;
++		}
++
++		method = *(const uint32_t *) decoded[0].p;
+ 	}
+ 
+ 	if (method >= ifaces[handle]->n_procs) {
+ 		fprintf(stderr, "Unsupported method: %u (%08x)\n", method, sc);
+ 		*result = AEE_EUNSUPPORTED;
+-		return 1;
++		return 0;
+ 	}
+ 
+ 	impl = &ifaces[handle]->procs[method];
+@@ -244,7 +313,7 @@ static int invoke_requested_procedure(size_t n_ifaces,
+ 	if (impl->def == NULL || impl->impl == NULL) {
+ 		fprintf(stderr, "Unsupported method: %u (%08x)\n", method, sc);
+ 		*result = AEE_EUNSUPPORTED;
+-		return 1;
++		return 0;
+ 	}
+ 
+ 	in_count = impl->def->in_bufs + ((impl->def->in_nums
+@@ -256,13 +325,13 @@ static int invoke_requested_procedure(size_t n_ifaces,
+ 	 || REMOTE_SCALARS_OUTBUFS(sc) != out_count) {
+ 		fprintf(stderr, "Unexpected buffer count: %08x\n", sc);
+ 		*result = AEE_EBADPARM;
+-		return 1;
++		return 0;
+ 	}
+ 
+ 	ret = check_inbuf_sizes(impl->def, decoded);
+ 	if (ret) {
+ 		*result = AEE_EBADPARM;
+-		return 1;
++		return 0;
+ 	}
+ 
+ 	*returned = allocate_outbufs(impl->def, decoded[0].p);
