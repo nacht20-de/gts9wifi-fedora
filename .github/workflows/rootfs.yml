@@ -1,0 +1,37 @@
+name: Fedora rootfs
+
+on:
+  workflow_dispatch:
+    inputs:
+      fedora_release:
+        description: "Fedora release to build against"
+        default: "44"
+        type: string
+
+jobs:
+  build-rootfs:
+    # Native arm64 like the pmOS kernel workflow — the rootfs build (dnf
+    # installroot + two meson builds) runs natively inside a Fedora aarch64
+    # container, no qemu involved.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build rootfs in Fedora aarch64 container
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" -w /work \
+            -e FEDORA_RELEASE='${{ inputs.fedora_release }}' \
+            quay.io/fedora/fedora:${{ inputs.fedora_release }} \
+            ./rootfs/build-rootfs.sh
+
+      - name: Upload rootfs tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: gts9wifi-fedora-rootfs-f${{ inputs.fedora_release }}
+          path: |
+            out/*.tar.gz
+            out/rootfs-manifest.txt
+          if-no-files-found: error

@@ -1,0 +1,44 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# The ANA38407 is unreachable after Samsung's cold boot hand-off (DCS ID
+# 00:00:00).  Suspending drivers alone does not repair it, but the kernel's
+# platform-level suspend test does: it runs the complete device + platform
+# callback sequence and automatically returns without an RTC or wake event.
+set -eu
+
+PM_TEST=/sys/power/pm_test
+PM_STATE=/sys/power/state
+
+log()
+{
+	echo "gts9wifi-panel-coldboot-recover: $*"
+}
+
+if [ ! -w "$PM_TEST" ] || [ ! -w "$PM_STATE" ]; then
+	log "PM test interface unavailable; leaving the display state unchanged"
+	exit 0
+fi
+
+if ! grep -qw platform "$PM_TEST"; then
+	log "platform test level unavailable; leaving the display state unchanged"
+	exit 0
+fi
+
+restore_pm_test()
+{
+	echo none > "$PM_TEST" 2>/dev/null || true
+}
+trap restore_pm_test EXIT INT TERM
+
+log "running the automatic platform suspend/resume cycle"
+echo platform > "$PM_TEST"
+echo mem > "$PM_STATE"
+log "platform cycle returned"
+
+# The DWC3 host does not survive this board-specific platform test reliably.
+# Recreate it only when the tablet was already the USB data host.  A normal
+# PC/RNDIS connection remains in device mode and is not disturbed.
+if [ -x /usr/libexec/gts9wifi-usb-host-resume ]; then
+	/usr/libexec/gts9wifi-usb-host-resume || true
+fi

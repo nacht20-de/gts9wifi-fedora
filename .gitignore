@@ -1,0 +1,15 @@
+# Extracted device assets never belong in git (blobs + size):
+# firmware payload, kernel modules, boot images, ssh keys.
+local-assets/
+
+# Build output
+out/
+build/
+
+# Disk images
+*.img
+*.img.xz
+*.raw
+
+# Never commit firmware blobs even outside local-assets
+firmware-samsung-gts9wifi.tar.gz

@@ -1,0 +1,16 @@
+[Unit]
+Description=Stock Android vendor image
+Requires=gts9wifi-android-parts.service
+After=gts9wifi-android-parts.service
+DefaultDependencies=no
+Conflicts=umount.target
+Before=umount.target
+
+[Mount]
+What=/dev/mapper/vendor
+Where=/vendor
+Type=erofs
+Options=ro
+
+[Install]
+WantedBy=multi-user.target

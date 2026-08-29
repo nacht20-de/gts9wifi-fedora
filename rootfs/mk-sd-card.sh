@@ -1,0 +1,92 @@
+#!/bin/bash
+# Assemble the bootable microSD for gts9wifi phase 1.
+#
+# The card replicates the pmOS SD layout the untouched eMMC boot chain
+# expects: p1 ext2 /boot mounted by UUID by the pmOS initramfs, p2 ext4 root
+# with the Fedora rootfs.  Your daily pmOS card is never touched — use a
+# SPARE card.
+#
+# Usage:
+#   sudo ./rootfs/mk-sd-card.sh <rootfs.tar.gz> <output.img> [size-GiB]   # image file
+#   sudo ./rootfs/mk-sd-card.sh <rootfs.tar.gz> /dev/sdX                  # write to card
+#
+# Then: dd the image to the card (if you built a file), insert, boot.
+
+set -euo pipefail
+
+[ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)" >&2; exit 1; }
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+repo_dir="$(dirname "$script_dir")"
+assets="$repo_dir/local-assets"
+
+rootfs_tar="${1:?usage: mk-sd-card.sh <rootfs.tar.gz> <output.img|/dev/sdX> [sizeGiB]}"
+target="${2:?usage: mk-sd-card.sh <rootfs.tar.gz> <output.img|/dev/sdX> [sizeGiB]}"
+size_gib="${3:-12}"
+
+# Must match the eMMC boot chain + /etc/fstab inside the rootfs tarball.
+boot_uuid="b7869a36-d9a0-4403-b9fd-e0ebec016b76"
+root_uuid="d2a235a8-37cd-4bac-be53-16caf2bfdd21"
+
+boot_files="$assets/boot-files"
+[ -d "$boot_files" ] || { echo "missing $boot_files — run rootfs/fetch-local-assets.sh" >&2; exit 1; }
+
+cleanup() {
+    [ -n "${m_boot:-}" ] && umount -f "$m_boot" 2>/dev/null || true
+    [ -n "${m_root:-}" ] && umount -f "$m_root" 2>/dev/null || true
+    [ -n "${loop:-}" ] && losetup -d "$loop" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+if [ -b "$target" ]; then
+    loop="$target"
+    echo ">>> partitioning $target directly"
+else
+    echo ">>> creating $size_gib GiB image at $target"
+    truncate -s "${size_gib}G" "$target"
+    loop="$(losetup --find --show "$target")"
+fi
+
+# MBR, 512 MiB boot partition, root in the rest.  A physical SD uses 512-byte
+# logical sectors, so plain LBAs are fine (unlike the UFS userdata layout).
+sfdisk --quiet "$loop" <<EOF
+label: dos
+start=8192, size=1048576, type=83
+start=1056768, type=83
+EOF
+partprobe "$loop" 2>/dev/null || true
+sleep 1
+
+case "$loop" in
+    /dev/mmcblk*|/dev/loop*) bp="${loop}p1"; rp="${loop}p2" ;;
+    *) bp="${loop}1"; rp="${loop}2" ;;
+esac
+
+echo ">>> filesystems (with the UUIDs the eMMC initramfs expects)"
+mkfs.ext2 -q -U "$boot_uuid" -L pmOS_boot "$bp"
+mkfs.ext4 -q -U "$root_uuid" -L gts9wifi-root "$rp"
+
+echo ">>> boot partition"
+m_boot="$(mktemp -d)"
+mount "$bp" "$m_boot"
+cp -a "$boot_files"/. "$m_boot"/
+
+echo ">>> root partition"
+m_root="$(mktemp -d)"
+mount "$rp" "$m_root"
+tar xzf "$rootfs_tar" -C "$m_root"
+
+echo ">>> syncing"
+sync
+umount "$m_boot" "$m_root"
+losetup -d "$loop" 2>/dev/null || true
+trap - EXIT
+
+echo ">>> done"
+if [ -b "$target" ]; then
+    echo "    card written: $target — insert and boot"
+else
+    echo "    image ready: $target"
+    echo "    write it with: sudo dd if=$target of=/dev/sdX bs=4M conv=fsync status=progress"
+fi
+echo "    first boot: tablet off, swap cards, power on.  SSH: phablet@172.16.42.1 (usb0)"

@@ -1,0 +1,11 @@
+[Unit]
+Description=Configure the native Samsung Bluetooth address from EFS
+After=systemd-udev-settle.service
+Before=bluetooth.service
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gts9wifi-bluetooth-address
+RemainAfterExit=yes
+

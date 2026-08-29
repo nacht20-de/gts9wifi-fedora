@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+attempt=0
+while [ "$attempt" -lt 45 ]; do
+	attempt=$((attempt + 1))
+	output=$(timeout 4 ssccli --sensor accelerometer --timeout 2 2>&1 || true)
+	if printf '%s\n' "$output" |
+	   grep -q 'Accelerometer sensor measurement:'; then
+		echo "SSC accelerometer ready after attempt $attempt"
+		systemctl restart iio-sensor-proxy.service
+		exit 0
+	fi
+	sleep 2
+done
+
+echo "SSC did not become ready for iio-sensor-proxy" >&2
+exit 1

@@ -1,0 +1,174 @@
+#!/bin/bash
+# Build a Fedora aarch64 rootfs for the Samsung Galaxy Tab S9 Wi-Fi (gts9wifi).
+#
+# MUST run inside an aarch64 Fedora environment — either the GitHub Actions
+# arm64 runner container (see .github/workflows/rootfs.yml) or locally:
+#
+#   podman run --rm -it -v "$PWD:/work:Z" -w /work quay.io/fedora/fedora:44 \
+#       ./rootfs/build-rootfs.sh
+#
+# Everything is native arm64: no qemu, no cross toolchain.
+#
+# Phase 1 boot strategy: the eMMC boot chain (Samsung ABL -> boot.img with
+# kernel #121 + appended DTB, pmOS initramfs, vendor_boot cmdline) stays
+# untouched.  The pmOS initramfs mounts the SD boot partition by UUID, loads
+# initramfs-extra, then mounts the ext4 root below and switch_roots into it.
+# It is rootfs-agnostic, so a Fedora root works as long as the partition
+# UUIDs match what /etc/fstab here expects and /usr/lib/modules matches the
+# running kernel.
+
+set -euo pipefail
+
+fedora_release="${FEDORA_RELEASE:-44}"
+kver="${GTS9_KERNEL_VERSION:-7.2.0-rc3}"
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+repo_dir="$(dirname "$script_dir")"
+rootfs="${ROOTFS_DIR:-$repo_dir/out/rootfs}"
+outdir="${OUT_DIR:-$repo_dir/out}"
+assets="$repo_dir/local-assets"
+
+# The partition UUIDs the untouched pmOS initramfs/eMMC boot chain expects
+# (see docs/PORT-KIT.md: the initramfs mounts /boot by this UUID).
+boot_uuid="b7869a36-d9a0-4403-b9fd-e0ebec016b76"
+root_uuid="d2a235a8-37cd-4bac-be53-16caf2bfdd21"
+
+missing_assets=()
+
+echo ">>> Fedora $fedora_release rootfs for gts9wifi, kernel $kver"
+mkdir -p "$rootfs" "$outdir"
+
+echo ">>> Installing rootfs packages"
+dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
+    --setopt=install_weak_deps=False install \
+    @core \
+    NetworkManager NetworkManager-wifi wpa_supplicant \
+    openssh-server openssh-clients \
+    sudo chrony zram-generator \
+    bluez bluez-tools \
+    qrtr pd-mapper libssc \
+    alsa-ucm alsa-utils \
+    linux-firmware \
+    e2fsprogs kmod
+
+echo ">>> Installing native build dependencies (build container only)"
+dnf -y -q install meson ninja-build gcc git curl tar patch "pkgconf-pkg-config" \
+    glib2-devel libgudev-devel systemd-devel libssc-devel kmod
+
+echo ">>> Building hexagonrpcd 0.4.0 with Samsung patches"
+# Upstream tag + the two Samsung patches from the pmOS port (large FastRPC
+# inbufs; Samsung sensor-registry writes) + Alpine's systemd-units patch.
+hexdir="$(mktemp -d)"
+git clone -q --depth 1 --branch v0.4.0 https://github.com/linux-msm/hexagonrpc "$hexdir/src"
+for p in "$repo_dir"/specs/hexagonrpcd-samsung/patches/*.patch; do
+    patch -d "$hexdir/src" -p1 < "$p"
+done
+meson setup "$hexdir/build" "$hexdir/src" -Dprefix=/usr -Db_lto=true
+meson compile -C "$hexdir/build"
+DESTDIR="$hexdir/staging" meson install --no-rebuild -C "$hexdir/build"
+install -Dm644 "$repo_dir"/specs/hexagonrpcd-samsung/patches/10-fastrpc.rules \
+    -t "$hexdir/staging/usr/lib/udev/rules.d/"
+cp -a "$hexdir/staging/." "$rootfs/"
+
+echo ">>> Building iio-sensor-proxy 3.9 with libssc support"
+# Fedora's own build may not link libssc; build it exactly like the pmOS port
+# (libssc + notify-slow-sensor-discovery patch).
+ispdir="$(mktemp -d)"
+curl -sfL "https://gitlab.freedesktop.org/hadess/iio-sensor-proxy/-/archive/3.9/iio-sensor-proxy-3.9.tar.gz" \
+    | tar xz -C "$ispdir" --strip-components=1
+patch -d "$ispdir" -p1 \
+    < "$repo_dir"/specs/iio-sensor-proxy-libssc/patches/notify-slow-sensor-discovery.patch
+meson setup "$ispdir/build" "$ispdir" -Dprefix=/usr
+meson compile -C "$ispdir/build"
+DESTDIR="$ispdir/staging" meson install --no-rebuild -C "$ispdir/build"
+cp -a "$ispdir/staging/." "$rootfs/"
+
+echo ">>> Applying device overlay"
+cp -a "$repo_dir/rootfs/overlay/." "$rootfs/"
+
+echo ">>> Injecting local assets"
+if [ -f "$assets/firmware.tar.gz" ]; then
+    tar xzf "$assets/firmware.tar.gz" -C "$rootfs"
+else
+    missing_assets+=("firmware.tar.gz (Wi-Fi/BT/ADSP/audio blobs: run rootfs/fetch-local-assets.sh)")
+fi
+if [ -d "$assets/modules/$kver" ]; then
+    mkdir -p "$rootfs/usr/lib/modules"
+    cp -a "$assets/modules/$kver" "$rootfs/usr/lib/modules/"
+    depmod -b "$rootfs" "$kver"
+else
+    missing_assets+=("modules/$kver (kernel modules matching eMMC kernel: run rootfs/fetch-local-assets.sh)")
+fi
+
+echo ">>> Base system configuration"
+cat > "$rootfs/etc/fstab" <<EOF
+UUID=$root_uuid /     ext4 defaults 0 0
+UUID=$boot_uuid /boot ext2 defaults,nodev,nosuid,noexec 0 0
+EOF
+echo gts9-fedora > "$rootfs/etc/hostname"
+sed -i 's/^SELINUX=.*/SELINUX=permissive/' "$rootfs/etc/selinux/config"
+
+# USB gadget network comes up configured by the pmOS initramfs; keep the
+# address after switch_root so first-boot debugging works over SSH.
+mkdir -p "$rootfs/etc/NetworkManager/system-connections"
+cat > "$rootfs/etc/NetworkManager/system-connections/usb0.nmconnection" <<EOF
+[connection]
+id=usb0
+interface-name=usb0
+type=ethernet
+autoconnect=true
+
+[ipv4]
+address1=172.16.42.1/24
+method=manual
+
+[ipv6]
+method=disabled
+EOF
+chmod 600 "$rootfs/etc/NetworkManager/system-connections/usb0.nmconnection"
+
+echo ">>> Users"
+echo 'root:phablet' | chpasswd --root "$rootfs"
+useradd --root "$rootfs" -m -G wheel -s /bin/bash phablet
+echo 'phablet:phablet' | chpasswd --root "$rootfs"
+if [ -f "$assets/ssh-key.pub" ]; then
+    home="$rootfs/home/phablet"
+    install -Dm600 -o 1000 -g 1000 "$assets/ssh-key.pub" "$home/.ssh/authorized_keys"
+else
+    missing_assets+=("ssh-key.pub (your public key for passwordless first-boot SSH)")
+fi
+
+echo ">>> Enabling services"
+for unit in \
+    sshd NetworkManager \
+    hexagonrpcd-sdsp hexagonrpcd-adsp-rootpd hexagonrpcd-adsp-sensorspd \
+    gts9wifi-wait-sensor-proxy \
+    gts9wifi-bluetooth-address bluetooth \
+    gts9wifi-panel-coldboot-recover \
+    gts9wifi-grow-rootfs \
+    mnt-vendor-persist.mount vendor-dsp.mount
+do
+    systemctl --root="$rootfs" enable "$unit" >/dev/null 2>&1 \
+        || echo "    WARN: unit not found (check name after hexagonrpcd patch): $unit"
+done
+# TODO(phase-1.5): vendor make-dynpart-mappings and enable
+# gts9wifi-android-parts.service + vendor.mount (super -> erofs /vendor).
+
+echo ">>> Cleaning"
+rm -rf "$rootfs/var/cache/dnf" "$rootfs/var/cache/rpm" "$rootfs/var/log/dnf*"
+rm -f "$rootfs/etc/machine-id" "$rootfs/var/lib/systemd/random-seed"
+
+echo ">>> Packing"
+rpm -qa --root "$rootfs" --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort \
+    > "$outdir/rootfs-manifest.txt"
+archive="$outdir/gts9wifi-fedora-$fedora_release-rootfs.tar.gz"
+tar -C "$rootfs" -czf "$archive" .
+
+echo ">>> Done: $archive"
+if [ "${#missing_assets[@]}" -gt 0 ]; then
+    echo ""
+    echo ">>> NOTE: CI builds without local assets. Missing here:"
+    for m in "${missing_assets[@]}"; do echo "    - $m"; done
+    echo ">>> Run rootfs/fetch-local-assets.sh locally, then rebuild for a"
+    echo "    first-boot-ready rootfs (firmware + modules + ssh key)."
+fi
