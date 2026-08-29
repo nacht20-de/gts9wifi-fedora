@@ -46,8 +46,11 @@ ssh phablet@172.16.42.1 (phablet / phablet, or the key from local-assets).
 
 ## Status
 
-First boot still pending — nothing is verified on hardware yet.  Known
-gaps, deliberate for now: the super/vendor erofs mount is disabled (needs
+First boot still pending — nothing is verified on hardware yet.  Sensors
+(accelerometer/ambient light via the SSC) are dead, same as on pmOS: the
+SSC never finishes discovery, so wait-sensor-proxy fails after its retries
+and iio-sensor-proxy has nothing to serve.  Known gaps, deliberate for
+now: the super/vendor erofs mount is disabled (needs
 make-dynpart-mappings, a pmOS tool with no Fedora counterpart), SELinux is
 permissive, and the rootfs boots the eMMC pmOS kernel 7.2.0-rc3 #121 with
 modules injected from the device.  Next: own kernel RPM plus an Android-v4
