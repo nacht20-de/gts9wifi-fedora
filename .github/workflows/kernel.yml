@@ -20,7 +20,7 @@ jobs:
             bash -lc '
               set -euxo pipefail
               dnf -y install make gcc clang lld llvm bc flex bison perl \
-                  openssl-devel elfutils-libelf-devel python3 tar xz zstd \
+                  openssl openssl-devel elfutils-libelf-devel python3 tar xz zstd \
                   rpm-build ccache dtc findutils dwarves >/dev/null
 
               # Fetch the kernel tarball (cached by hash across runs).
