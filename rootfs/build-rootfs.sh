@@ -272,8 +272,8 @@ tar -C "$rootfs" -czf "$archive" .
 echo ">>> Done: $archive"
 if [ "${#missing_assets[@]}" -gt 0 ]; then
     echo ""
-    echo ">>> NOTE: CI builds without local assets. Missing here:"
+    echo ">>> NOTE: not provided in this build:"
     for m in "${missing_assets[@]}"; do echo "    - $m"; done
-    echo ">>> Run rootfs/fetch-local-assets.sh locally, then rebuild for a"
-    echo "    first-boot-ready rootfs (firmware + modules + ssh key)."
+    echo ">>> (release CI builds provide the firmware payload and kernel RPM;"
+    echo ">>> only a personal ssh key is ever local-only.)"
 fi
