@@ -5,11 +5,11 @@ on:
     inputs:
       kernel_rpm_url:
         description: "Kernel RPM URL (defaults to the pinned release)"
-        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-1/linux-gts9wifi-7.2.0-0.1.rc3.fc44.aarch64.rpm"
+        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-2/linux-gts9wifi-7.2.0-0.2.rc3.fc44.aarch64.rpm"
         type: string
       kernel_sha256:
         description: "sha256 of the RPM"
-        default: "52c307771baba9281fa0218dd1e8fea6801f9afd8aea8551d9e8838af605cf36"
+        default: "07aaee8c980b8428a838d5acf2a637cade076d3cc132f299904c21737ca1ee25"
         type: string
 
 env:
