@@ -46,13 +46,17 @@ ssh phablet@172.16.42.1 (phablet / phablet, or the key from local-assets).
 
 ## Status
 
-First boot still pending — nothing is verified on hardware yet.  Sensors
-(accelerometer/ambient light via the SSC) are dead, same as on pmOS: the
-SSC never finishes discovery, so wait-sensor-proxy fails after its retries
-and iio-sensor-proxy has nothing to serve.  Known gaps, deliberate for
-now: the super/vendor erofs mount is disabled (needs
-make-dynpart-mappings, a pmOS tool with no Fedora counterpart), SELinux is
-permissive, and the rootfs boots the eMMC pmOS kernel 7.2.0-rc3 #121 with
-modules injected from the device.  Next: own kernel RPM plus an Android-v4
-boot bundle via the pmos repo scripts, then pocketblue-style atomic images
-(the ABL kernel-update problem is the open design point there).
+Booted on hardware (2026-09-04): the eMMC now carries this repo's own boot
+bundle (kernel 7.2.0-rc3-gts9wifi) with the SD-card Fedora root.  Wi-Fi
+(QCA6490/ath11k) and BT (hci_uart QCA) come up from a cold start: the DTS
+programs the stock X710 AOP wlan_pdc table over the QMP mailbox (the pmOS
+port dropped it as kiwi-specific; a cold handoff disproves that - without
+the votes the WCN PMU never completes power-up, PCIe enumerates after the
+bus scan and the BT ROM never answers).  When flashing a new boot bundle,
+ALWAYS install the matching kernel RPM on the rootfs afterwards: each CI
+run signs modules with a fresh ephemeral key, so a new boot.img with the
+old module tree fails with "Operation not permitted".  Sensors (accel/
+light via the SSC) are dead, same as on pmOS.  Known gaps: super/vendor
+erofs mount disabled (needs make-dynpart-mappings), SELinux permissive,
+Bluetooth hci0 completes kernel setup but never registers with bluez mgmt
+("Index list with 0 items") - open issue.
