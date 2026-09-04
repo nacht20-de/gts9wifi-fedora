@@ -81,6 +81,17 @@ if [ "$desktop" = "gnome" ]; then
     # image; drop it so the first boot goes straight to the gdm login.
     dnf -y --installroot="$rootfs" --use-host-config -q remove \
         gnome-initial-setup || true
+    # The workstation group pulls the linux-firmware meta as mandatory; this
+    # board needs none of it (the device payload plus atheros/qcom cover
+    # every consumer), and it is half a gigabyte of dead weight.
+    dnf -y --installroot="$rootfs" --use-host-config -q remove \
+        linux-firmware amd-gpu-firmware intel-gpu-firmware nvidia-gpu-firmware \
+        iwlwifi-dvm-firmware iwlwifi-mld-firmware iwlwifi-mvm-firmware \
+        iwlegacy-firmware mt7xxx-firmware realtek-firmware tiwilink-firmware \
+        libertas-firmware brcmfmac-firmware nxpwireless-firmware \
+        qcom-wwan-firmware || true
+    dnf -y --installroot="$rootfs" --use-host-config --setopt=tsflags=nodocs \
+        install atheros-firmware qcom-firmware || true
 fi
 
 echo ">>> Installing native build dependencies (build container only)"
