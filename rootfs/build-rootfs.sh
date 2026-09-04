@@ -9,25 +9,38 @@
 #
 # Everything is native arm64: no qemu, no cross toolchain.
 #
-# Phase 1 boot strategy: the eMMC boot chain (Samsung ABL -> boot.img with
-# kernel #121 + appended DTB, pmOS initramfs, vendor_boot cmdline) stays
-# untouched.  The pmOS initramfs mounts the SD boot partition by UUID, loads
-# initramfs-extra, then mounts the ext4 root below and switch_roots into it.
-# It is rootfs-agnostic, so a Fedora root works as long as the partition
-# UUIDs match what /etc/fstab here expects and /usr/lib/modules matches the
-# running kernel.
+# Default image = the release layout: Fedora Workstation (GNOME + gdm),
+# user 'fedora' (password 'fedora'), the full device stack, the firmware
+# payload and the pinned kernel RPM baked in — flash the matching TWRP
+# bundle, write the SD, boot to the gdm login.  GTS9_DESKTOP=core builds
+# the small headless debug image instead.
+#
+# Boot: the eMMC boot chain (boot/init_boot/vendor_boot/dtbo from this
+# repo's bundle) loads the kernel + dracut initramfs, which mounts the SD
+# root by the root=UUID on the vendor_boot cmdline.
 
 set -euo pipefail
 
 fedora_release="${FEDORA_RELEASE:-44}"
 kver="${GTS9_KERNEL_VERSION:-7.2.0-rc3}"
-build_user="${GTS9_USER:-phablet}"
+build_user="${GTS9_USER:-fedora}"
+# gnome = Fedora Workstation environment + gdm (the release image);
+# core = headless @core only (smaller bring-up/debug image).
+desktop="${GTS9_DESKTOP:-gnome}"
+# CI passes a downloaded, sha256-verified firmware payload and the pinned
+# kernel RPM here so the release image is self-contained: firmware blobs and
+# a module tree matching the boot bundle live inside the rootfs.
+firmware_tar="${FIRMWARE_TARBALL:-}"
+kernel_rpm="${KERNEL_RPM:-}"
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_dir="$(dirname "$script_dir")"
 rootfs="${ROOTFS_DIR:-$repo_dir/out/rootfs}"
 outdir="${OUT_DIR:-$repo_dir/out}"
 assets="$repo_dir/local-assets"
+
+# Fallback for local runs: the fetched payload in local-assets.
+[ -n "$firmware_tar" ] || firmware_tar="$assets/firmware.tar.gz"
 
 # The partition UUIDs the untouched pmOS initramfs/eMMC boot chain expects
 # (see docs/PORT-KIT.md: the initramfs mounts /boot by this UUID).
@@ -55,6 +68,20 @@ dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
     systemd-pam \
     linux-firmware \
     e2fsprogs kmod
+
+if [ "$desktop" = "gnome" ]; then
+    echo ">>> Installing the GNOME Workstation environment"
+    # Same environment group the Fedora Workstation install uses; gdm,
+    # pipewire, gnome-shell and the Wayland session come with it.  GNOME's
+    # touch support (on-screen keyboard, gestures) needs no extra setup.
+    dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
+        --use-host-config --setopt=install_weak_deps=False install \
+        '@^workstation-product-environment'
+    # The first-login welcome wizard has nothing to offer in a pre-provisioned
+    # image; drop it so the first boot goes straight to the gdm login.
+    dnf -y --installroot="$rootfs" --use-host-config -q remove \
+        gnome-initial-setup || true
+fi
 
 echo ">>> Installing native build dependencies (build container only)"
 # systemd: the base container image ships without it, but systemctl --root=
@@ -132,8 +159,8 @@ echo ">>> Applying device overlay"
 cp -a "$repo_dir/rootfs/overlay/." "$rootfs/"
 
 echo ">>> Injecting local assets"
-if [ -f "$assets/firmware.tar.gz" ]; then
-    tar xzf "$assets/firmware.tar.gz" -C "$rootfs"
+if [ -f "$firmware_tar" ]; then
+    tar xzf "$firmware_tar" -C "$rootfs"
 else
     missing_assets+=("firmware.tar.gz (Wi-Fi/BT/ADSP/audio blobs: run rootfs/fetch-local-assets.sh)")
 fi
@@ -141,8 +168,19 @@ if [ -d "$assets/modules/$kver" ]; then
     mkdir -p "$rootfs/usr/lib/modules"
     cp -a "$assets/modules/$kver" "$rootfs/usr/lib/modules/"
     depmod -b "$rootfs" "$kver"
+elif [ -n "$kernel_rpm" ]; then
+    :   # kernel modules come from the pinned RPM below
 else
     missing_assets+=("modules/$kver (kernel modules matching eMMC kernel: run rootfs/fetch-local-assets.sh)")
+fi
+
+if [ -n "$kernel_rpm" ]; then
+    echo ">>> Installing the pinned kernel RPM (module tree + /boot)"
+    # Keeps the rootfs self-contained: modules signed by the same CI run as
+    # the boot bundle, so Wi-Fi/BT load on first boot without any pairing
+    # step (see the README rule about bundle/RPM pairing).
+    dnf -y --installroot="$rootfs" --use-host-config install "$kernel_rpm"
+    depmod -b "$rootfs" -a "${kver}-gts9wifi" 2>/dev/null || true
 fi
 
 echo ">>> Base system configuration"
@@ -188,6 +226,11 @@ else
 fi
 
 echo ">>> Enabling services"
+if [ "$desktop" = "gnome" ]; then
+    systemctl --root="$rootfs" enable gdm >/dev/null 2>&1 \
+        || echo "    WARN: gdm not found" >&2
+    systemctl --root="$rootfs" set-default graphical.target >/dev/null 2>&1 || true
+fi
 for unit in \
     sshd NetworkManager \
     hexagonrpcd-adsp-rootpd \

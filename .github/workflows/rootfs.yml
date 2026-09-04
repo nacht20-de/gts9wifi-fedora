@@ -7,31 +7,69 @@ on:
         description: "Fedora release to build against"
         default: "44"
         type: string
+      desktop:
+        description: "gnome = release image (Workstation + device stack + firmware + kernel); core = headless debug image"
+        default: "gnome"
+        type: choice
+        options: [gnome, core]
+      kernel_rpm_url:
+        description: "Kernel RPM URL — must be the same release users flash as the TWRP boot bundle"
+        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-2/linux-gts9wifi-7.2.0-0.2.rc3.fc44.aarch64.rpm"
+        type: string
+      kernel_sha256:
+        description: "sha256 of the RPM"
+        default: "07aaee8c980b8428a838d5acf2a637cade076d3cc132f299904c21737ca1ee25"
+        type: string
+      firmware_url:
+        description: "Device firmware payload (extracted from the stock partitions)"
+        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-2/firmware-samsung-gts9wifi.tar.gz"
+        type: string
+      firmware_sha256:
+        description: "sha256 of the firmware payload"
+        default: "bd49ffa28e1967f3219883f6b20bd4197dbb01dcf066237178c3c6da419e15e0"
+        type: string
 
 jobs:
   build-rootfs:
     # Native arm64 like the pmOS kernel workflow — the rootfs build (dnf
-    # installroot + two meson builds) runs natively inside a Fedora aarch64
-    # container, no qemu involved.
+    # installroot + three meson builds) runs natively inside a Fedora
+    # aarch64 container, no qemu involved.
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Fetch pinned firmware payload and kernel RPM
+        run: |
+          mkdir -p _ci
+          curl -sfL "${{ inputs.firmware_url }}" -o _ci/firmware.tar.gz
+          echo "${{ inputs.firmware_sha256 }}  _ci/firmware.tar.gz" | sha256sum -c -
+          curl -sfL "${{ inputs.kernel_rpm_url }}" -o _ci/kernel.rpm
+          echo "${{ inputs.kernel_sha256 }}  _ci/kernel.rpm" | sha256sum -c -
 
       - name: Build rootfs in Fedora aarch64 container
         run: |
           docker run --rm \
             -v "$PWD:/work" -w /work \
             -e FEDORA_RELEASE='${{ inputs.fedora_release }}' \
+            -e GTS9_DESKTOP='${{ inputs.desktop }}' \
+            -e GTS9_USER='fedora' \
+            -e FIRMWARE_TARBALL=/work/_ci/firmware.tar.gz \
+            -e KERNEL_RPM=/work/_ci/kernel.rpm \
             quay.io/fedora/fedora:${{ inputs.fedora_release }} \
             ./rootfs/build-rootfs.sh
+
+      - name: Checksum
+        run: |
+          cd out && sha256sum *.tar.gz rootfs-manifest.txt > SHA256SUMS && cat SHA256SUMS
 
       - name: Upload rootfs tarball
         uses: actions/upload-artifact@v4
         with:
-          name: gts9wifi-fedora-rootfs-f${{ inputs.fedora_release }}
+          name: gts9wifi-fedora-${{ inputs.desktop }}-rootfs-f${{ inputs.fedora_release }}
           path: |
             out/*.tar.gz
             out/rootfs-manifest.txt
+            out/SHA256SUMS
           if-no-files-found: error

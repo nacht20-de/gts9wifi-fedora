@@ -35,7 +35,7 @@ Wi-Fi associates and the Bluetooth controller completes setup on its own.
 See [INSTALL.md](INSTALL.md) for the full walk-through. In short: build (or
 download) the Fedora SD-card rootfs, flash the boot bundle to the eMMC boot
 partitions from TWRP, and boot with the card inserted. USB networking comes
-up on usb0 for debugging: `ssh <user>@172.16.42.1`.
+up on usb0 for debugging: `ssh fedora@172.16.42.1`.
 
 **The one rule when updating:** a new boot bundle must be paired with its
 matching kernel RPM on the rootfs (`dnf install ./linux-gts9wifi-*.rpm`).
@@ -77,7 +77,7 @@ build needs an arm64 Fedora container:
         ./rootfs/build-rootfs.sh
     sudo ./rootfs/mk-sd-card.sh out/gts9wifi-fedora-44-rootfs.tar.gz /dev/sdX
 
-`GTS9_USER` (default `phablet`) names the first-boot user. Device blobs are
+`GTS9_USER` (default `fedora`) names the first-boot user. Device blobs are
 never committed; see [INSTALL.md](INSTALL.md) for the firmware story.
 
 libssc and pd-mapper are not in Fedora and are built from source; hexagonrpcd
