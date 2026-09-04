@@ -171,6 +171,33 @@
 		xo-clk-gpios = <&tlmm 204 GPIO_ACTIVE_HIGH>;
 
 		/*
+		 * AOP PDC programming for the QCA6490, from the stock X710
+		 * cnss qcom,pdc_init_table.  The pmOS port dropped these votes
+		 * (c49bd79) after finding the xo-clk strobe alone starts the
+		 * chip - but that only holds when the boot chain hands the chip
+		 * over already powered.  After a full poweroff (cold handoff)
+		 * the PMU never completes power-up without these votes: PCIe
+		 * trains only after the bus scan, so ath11k never sees the
+		 * endpoint, and the BT ROM never answers its version read
+		 * (reproduced on device, 2026-09-04).  Values are the ones
+		 * verified on this board by the original commit (pmOS 3e9e3ef)
+		 * and cross-checked against the stock X910 dtbo.
+		 */
+		qcom,qmp = <&aoss_qmp>;
+		qcom,wlan-pdc-init =
+			"{class: wlan_pdc, ss: rf, res: s4e.v, upval: 966}",
+			"{class: wlan_pdc, ss: rf, res: s4e.v, dwnval: 615}",
+			"{class: wlan_pdc, ss: rf, res: s4g.v, upval: 1350}",
+			"{class: wlan_pdc, ss: rf, res: s4g.v, dwnval: 945}",
+			"{class: wlan_pdc, ss: rf, res: s6g.v, upval: 1900}",
+			"{class: wlan_pdc, ss: rf, res: s6g.v, dwnval: 1825}",
+			"{class: wlan_pdc, ss: rf, res: s2g.m, enable: 1}",
+			"{class: wlan_pdc, ss: rf, res: s2g.v, enable: 1}",
+			"{class: wlan_pdc, ss: rf, res: s2g.v, upval: 1012}",
+			"{class: wlan_pdc, ss: rf, res: s2g.v, dwnval: 800}",
+			"{class: wlan_pdc, ss: bb, res: pdc, enable: 0}";
+
+		/*
 		 * Rail votes taken from the stock cnss2 qca6490 node: aon
 		 * 1.012 V, dig 0.966 V, io 1.8 V, rfa1 1.9 V, rfa2 1.35 V.
 		 */
