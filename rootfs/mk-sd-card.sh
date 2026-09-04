@@ -94,10 +94,11 @@ else
     echo "    WARN: no kernel modules for $kver — the rootfs will not boot"
 fi
 if [ -f "$assets/ssh-key.pub" ]; then
+    user="${GTS9_USER:-phablet}"
     install -Dm600 -o 1000 -g 1000 "$assets/ssh-key.pub" \
-        "$m_root/home/phablet/.ssh/authorized_keys"
+        "$m_root/home/$user/.ssh/authorized_keys"
 else
-    echo "    NOTE: no ssh key; first login uses password 'phablet'"
+    echo "    NOTE: no ssh key; first login uses the build user's password"
 fi
 
 echo ">>> syncing"
@@ -113,4 +114,4 @@ else
     echo "    image ready: $target"
     echo "    write it with: sudo dd if=$target of=/dev/sdX bs=4M conv=fsync status=progress"
 fi
-echo "    first boot: tablet off, swap cards, power on.  SSH: phablet@172.16.42.1 (usb0)"
+echo "    first boot: tablet off, swap cards, power on.  SSH: ${GTS9_USER:-phablet}@172.16.42.1 (usb0)"

@@ -1,5 +1,10 @@
 # gts9wifi Fedora port kit
 
+> **Internal development notes.** This is the extraction inventory behind
+> the port, kept for porting and debugging — it is not end-user
+> documentation. For installing, see [INSTALL.md](../INSTALL.md); for the
+> overview and hardware status, the [README](../README.md).
+
 Everything extracted from the working postmarketOS port (repo: `../pmos-gts9wifi-build`)
 and the live device (`phablet@172.16.42.1` over USB network), assembled for a
 Fedora/pocketblue-style port. Captured 2026-08-29, device running
@@ -22,11 +27,15 @@ Samsung ABL (X710) loads, per Android boot-image v4:
 | Partition | eMMC | Size | Role |
 |---|---|---|---|
 | `boot` | sda21 | 96M | `ANDROID!` header v4, kernel Image + **appended mainline DTB** |
-| `init_boot` | sda22 | 96M | generic ramdisk (lz4-legacy) |
-| `vendor_boot` | sda24 | 96M | `VNDRBOOT` header, vendor ramdisk + **cmdline + bootconfig** |
+| `init_boot` | sda22 | 8M | generic ramdisk (lz4-legacy); too small for a real initramfs, so the bundle ships an empty cpio and the full initramfs rides in vendor_boot |
+| `vendor_boot` | sda24 | 96M | `VNDRBOOT` header, vendor ramdisk + **cmdline + bootconfig**; its DTB is the one ABL actually loads (verified on the live FDT 2026-09-04) |
 | `dtbo` | sda30 | 16M | **deliberately invalid (all zeros)** → forces ABL's DeviceTreeAppended fallback |
-| `vbmeta` | sda15 | 4M | **zeroed** (verified boot disabled) |
+| `vbmeta` | sde15 | 128K | **zeroed** (verified boot disabled, flags 2; read-only in TWRP) |
 | `vbmeta_system` | sda18 | 64K | `AVB0` header, hash footers added by `avbtool add_hash_footer` |
+
+Sizes for `init_boot` and `vbmeta` re-verified from TWRP `blockdev
+--getsize64` on 2026-09-04; the original 2026-08-29 capture mis-recorded
+them as 96M/4M.
 
 Pagesize 4096. The bundle that produces these is
 `scripts/build-android-v4-bundle.sh` + `bundle-inputs/` in the pmos repo — **fully
