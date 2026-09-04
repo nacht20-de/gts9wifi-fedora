@@ -1,7 +1,8 @@
 #!/bin/sh
 # Revive hci0 after the shared WCN power sequencer has been cycled (e.g.
-# by ath11k rework): rebind the serdev while holding BT_EN (tlmm gpio 204)
-# high so the QCA setup does not lose the enable edge to the sequencer.
+# by ath11k rework): rebind the serdev while holding the WCN xo-clk strobe
+# (tlmm gpio 204) high so the QCA setup does not lose the enable edge to
+# the sequencer.  BT_EN itself is tlmm 81 and always sequencer-owned.
 set -eu
 
 drv=/sys/bus/serial/drivers/hci_uart_qca
