@@ -217,6 +217,12 @@ chmod 600 "$rootfs/etc/NetworkManager/system-connections/usb0.nmconnection"
 echo ">>> Users"
 echo "root:${build_user}" | chpasswd --root "$rootfs"
 useradd --root "$rootfs" -m -G wheel -s /bin/bash "$build_user"
+# useradd's skel copy can abort partway (observed "Bad file descriptor" for
+# one entry in the CI container, leaving only a partial home): populate the
+# home directory explicitly and hand it to the first user's uid/gid (1000).
+mkdir -p "$rootfs/home/$build_user"
+cp -a "$rootfs/etc/skel/." "$rootfs/home/$build_user/"
+chown -R 1000:1000 "$rootfs/home/$build_user"
 echo "${build_user}:${build_user}" | chpasswd --root "$rootfs"
 if [ -f "$assets/ssh-key.pub" ]; then
     home="$rootfs/home/$build_user"
