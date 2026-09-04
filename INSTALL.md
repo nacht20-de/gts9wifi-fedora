@@ -28,19 +28,25 @@ Estimated time: ~1 hour, most of it unattended.
    of the port kit. Without it the build still completes, but Wi-Fi, BT,
    audio and the ADSP will be dead on the tablet.
 
-## 1. Build the rootfs tarball
+## 1. Get or build the rootfs
 
-GitHub Actions → **"Fedora rootfs"** → Run workflow (arm64 runner, no local
-setup), or build locally in an arm64 Fedora container:
+**Easiest**: download the turnkey rootfs tarball from
+[Releases](https://github.com/nacht20-de/gts9wifi-fedora/releases)
+(`rootfs-f44-gnome-…`, ~1.8 GB). It already contains GNOME, the device
+stack, all firmware and the kernel modules matching the boot bundle —
+continue with step 2.
+
+Building it yourself (GitHub Actions → **"Fedora rootfs"** → Run workflow,
+or locally in an arm64 Fedora container):
 
     ./rootfs/fetch-local-assets.sh
     podman run --rm -it -v "$PWD:/work:Z" -w /work quay.io/fedora/fedora:44 \
         ./rootfs/build-rootfs.sh
 
-Optional environment: `GTS9_USER=nacht` names the first-boot user
+Optional environment: `GTS9_USER` names the first-boot user
 (default `fedora`, password equals the username — change it on first
 login; an SSH key from `local-assets/ssh-key.pub` is installed when
-present).
+present). `GTS9_DESKTOP=core` builds a small headless debug image.
 
 ## 2. Write the SD card
 

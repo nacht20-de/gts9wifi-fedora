@@ -44,10 +44,18 @@ boot.img with an old module tree fails with "Operation not permitted".
 
 ## Getting the images
 
-Prebuilt images live in
-[Releases](https://github.com/nacht20-de/gts9wifi-fedora/releases):
-the TWRP flash zip (boot bundle), the raw boot-bundle images, and the
-kernel RPM. CI artifacts also exist per successful
+[Releases](https://github.com/nacht20-de/gts9wifi-fedora/releases) carries
+everything needed:
+
+- **`rootfs-f44-gnome-…`** — the turnkey rootfs tarball: GNOME Workstation
+  + gdm, the device stack, all device firmware and the kernel modules
+  matching the boot bundle. Login `fedora` / `fedora`.
+- **`kernel-…-gts9wifi-2`** — the TWRP flash zip (boot bundle), the raw
+  images, the kernel RPM and the firmware payload asset.
+
+Write the rootfs to a microSD with `rootfs/mk-sd-card.sh`, flash the TWRP
+zip, boot — see [INSTALL.md](INSTALL.md). CI artifacts also exist per
+successful
 [Actions](https://github.com/nacht20-de/gts9wifi-fedora/actions) run.
 
 ## Layout
