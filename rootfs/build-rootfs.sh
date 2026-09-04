@@ -56,7 +56,7 @@ echo ">>> Installing rootfs packages"
 # --use-host-config: dnf5 loads repositories from the (empty) installroot
 # otherwise; the container's own repo config + gpg keys are what we want.
 dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
-    --use-host-config --setopt=install_weak_deps=False install \
+    --use-host-config --setopt=install_weak_deps=False --setopt=tsflags=nodocs install \
     @core \
     NetworkManager NetworkManager-wifi wpa_supplicant \
     openssh-server openssh-clients \
@@ -66,7 +66,7 @@ dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
     alsa-ucm alsa-utils dtc \
     libqmi libqrtr-glib protobuf-c libmbim \
     systemd-pam \
-    linux-firmware \
+    atheros-firmware qcom-firmware \
     e2fsprogs kmod
 
 if [ "$desktop" = "gnome" ]; then
@@ -75,7 +75,7 @@ if [ "$desktop" = "gnome" ]; then
     # pipewire, gnome-shell and the Wayland session come with it.  GNOME's
     # touch support (on-screen keyboard, gestures) needs no extra setup.
     dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
-        --use-host-config --setopt=install_weak_deps=False install \
+        --use-host-config --setopt=install_weak_deps=False --setopt=tsflags=nodocs install \
         '@^workstation-product-environment'
     # The first-login welcome wizard has nothing to offer in a pre-provisioned
     # image; drop it so the first boot goes straight to the gdm login.
@@ -179,7 +179,7 @@ if [ -n "$kernel_rpm" ]; then
     # Keeps the rootfs self-contained: modules signed by the same CI run as
     # the boot bundle, so Wi-Fi/BT load on first boot without any pairing
     # step (see the README rule about bundle/RPM pairing).
-    dnf -y --installroot="$rootfs" --use-host-config install "$kernel_rpm"
+    dnf -y --installroot="$rootfs" --use-host-config --setopt=tsflags=nodocs install "$kernel_rpm"
     depmod -b "$rootfs" -a "${kver}-gts9wifi" 2>/dev/null || true
 fi
 
