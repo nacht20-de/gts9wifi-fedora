@@ -47,7 +47,7 @@ make ARCH=arm64 LLVM=1 \
      INSTALL_MOD_PATH=%{buildroot}/usr \
      INSTALL_DTBS_PATH=%{buildroot}/boot/dtbs-%{kversion}-%{flavor} \
      INSTALL_MOD_STRIP=1
-install -Dm0644 arch/arm64/boot/vmlinuz %{buildroot}/boot/vmlinuz-$krel
+install -Dm0644 arch/arm64/boot/vmlinuz.efi %{buildroot}/boot/vmlinuz-$krel
 install -Dm0644 System.map %{buildroot}/boot/System.map-$krel
 
 depmod -b %{buildroot}/usr -a %{kversion}-%{flavor}
