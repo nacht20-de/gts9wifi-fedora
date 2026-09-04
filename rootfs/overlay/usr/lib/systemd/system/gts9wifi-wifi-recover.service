@@ -1,0 +1,10 @@
+[Unit]
+Description=Recover the WCN Wi-Fi endpoint when power-on raced the PCIe scan
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gts9wifi-wifi-recover
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
