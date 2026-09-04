@@ -59,6 +59,9 @@ jobs:
             -e KERNEL_RPM=/work/_ci/kernel.rpm \
             quay.io/fedora/fedora:${{ inputs.fedora_release }} \
             ./rootfs/build-rootfs.sh
+          # The container writes out/ as root; hand it to the runner user
+          # so the checksum step below can add SHA256SUMS next to it.
+          sudo chown -R "$(id -u):$(id -g)" out
 
       - name: Checksum
         run: |
