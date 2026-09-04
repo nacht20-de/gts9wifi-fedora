@@ -38,7 +38,7 @@ setup), or build locally in an arm64 Fedora container:
         ./rootfs/build-rootfs.sh
 
 Optional environment: `GTS9_USER=nacht` names the first-boot user
-(default `phablet`, password equals the username — change it on first
+(default `fedora`, password equals the username — change it on first
 login; an SSH key from `local-assets/ssh-key.pub` is installed when
 present).
 
@@ -78,7 +78,7 @@ fill the card, the panel cold-boot recovery runs a platform PM cycle, and
 Wi-Fi/BT power up through the WCN sequencer (the AOP PDC init table in the
 DTB handles cold starts). A USB debug network appears as `usb0`:
 
-    ssh <user>@172.16.42.1        # password = username, or your injected key
+    ssh fedora@172.16.42.1         # password: fedora (or your injected key)
 
 Configure Wi-Fi with `nmcli device wifi connect "<SSID>" password "<pw>"`.
 From here on the tablet is a normal (headless-core) Fedora system: add your
