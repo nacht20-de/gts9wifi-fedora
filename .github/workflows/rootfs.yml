@@ -22,11 +22,11 @@ on:
         type: string
       firmware_url:
         description: "Device firmware payload (extracted from the stock partitions)"
-        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-2/firmware-samsung-gts9wifi.tar.gz"
+        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-2/firmware-samsung-gts9wifi-v2.tar.gz"
         type: string
       firmware_sha256:
         description: "sha256 of the firmware payload"
-        default: "bd49ffa28e1967f3219883f6b20bd4197dbb01dcf066237178c3c6da419e15e0"
+        default: "30cace40556fdaf1577c76bedc1b1a6236f4acc23e9300253b3834fa7ed4bab5"
         type: string
 
 jobs:
