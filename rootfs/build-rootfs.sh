@@ -167,7 +167,7 @@ curl -sfL "https://gitlab.freedesktop.org/hadess/iio-sensor-proxy/-/archive/3.9/
     | tar xz -C "$ispdir" --strip-components=1
 patch -d "$ispdir" -p1 \
     < "$repo_dir"/specs/iio-sensor-proxy-libssc/patches/notify-slow-sensor-discovery.patch
-meson setup "$ispdir/build" "$ispdir" -Dprefix=/usr
+meson setup "$ispdir/build" "$ispdir" -Dprefix=/usr -Dssc-support=enabled
 meson compile -C "$ispdir/build"
 DESTDIR="$ispdir/staging" meson install --no-rebuild -C "$ispdir/build"
 cp -a "$ispdir/staging/." "$rootfs/"
