@@ -270,6 +270,7 @@ if [ "$desktop" = "gnome" ]; then
     # Tablet UX: log straight in.  Also sidesteps the first-ever-login race
     # where gnome-shell aborts building the OSK before IBus has enumerated
     # engines (turn off in GNOME Settings > Users if unwanted).
+    mkdir -p "$rootfs/etc/gdm"
     printf "[daemon]\nAutomaticLoginEnable=True\nAutomaticLogin=%s\n" "$build_user" \
         > "$rootfs/etc/gdm/custom.conf"
 fi
