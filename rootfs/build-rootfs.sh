@@ -154,8 +154,10 @@ if [ -d "$rootfs/usr/lib64/systemd/system" ]; then
 fi
 
 # The Workstation environment installs Fedora's iio-sensor-proxy (kernel
-# IIO backend); drop it so our libssc-linked build owns the files cleanly.
-dnf -y --installroot="$rootfs" --use-host-config -q remove iio-sensor-proxy || true
+# I/O backend).  Do NOT dnf-remove it: mutter/gnome-shell require it and the
+# transaction cascades the whole desktop out of the image.  Drop just the
+# rpmdb entry; our libssc-linked build overwrites the files anyway.
+chroot "$rootfs" rpm -e --nodeps iio-sensor-proxy || true
 
 echo ">>> Building iio-sensor-proxy 3.9 with libssc support"
 # Fedora's own build may not link libssc; build it exactly like the pmOS port
@@ -265,8 +267,11 @@ if [ "$desktop" = "gnome" ]; then
     chroot "$rootfs" firewall-offline-cmd --add-service=ssh >/dev/null 2>&1 \
         || echo "    WARN: could not allow ssh in the firewall" >&2
     # abrt only produces signature-error noise on an RTC-less tablet whose
-    # clock starts wrong; an appliance image does not want it.
-    dnf -y --installroot="$rootfs" --use-host-config -q remove abrt abrt-addon-* abrt-desktop abrt-java-connector abrt-retrace-client abrt-cli 2>/dev/null || true
+    # clock starts wrong; and dnf-removing it cascades dnf itself out of
+    # the image (libreport/python3-dnf dependency chain).  Mask it instead.
+    systemctl --root="$rootfs" mask abrtd.service abrt-journal-core.service \
+        abrt-oops.service abrt-vmcore.service abrt-xorg.service \
+        abrt-dump-journal-core.service abrt-dump-oops.service >/dev/null 2>&1 || true
 fi
 for unit in \
     sshd NetworkManager \
