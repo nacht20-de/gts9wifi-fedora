@@ -2,6 +2,15 @@ name: Kernel build
 
 on:
   workflow_dispatch:
+    inputs:
+      firmware_url:
+        description: "Device firmware payload (GPU/ADSP blobs for the initramfs)"
+        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-2/firmware-samsung-gts9wifi-v2.tar.gz"
+        type: string
+      firmware_sha256:
+        description: "sha256 of the firmware payload"
+        default: "30cace40556fdaf1577c76bedc1b1a6236f4acc23e9300253b3834fa7ed4bab5"
+        type: string
 
 env:
   KVER: 7.2.0-rc3-gts9wifi
@@ -19,6 +28,8 @@ jobs:
         run: |
           docker run --rm \
             -e KVER \
+            -e FIRMWARE_URL='${{ inputs.firmware_url }}' \
+            -e FIRMWARE_SHA256='${{ inputs.firmware_sha256 }}' \
             -v "$PWD:/work" -w /work \
             quay.io/fedora/fedora:44 \
             bash -lc '
@@ -50,6 +61,12 @@ jobs:
 
               # --- initramfs: install the RPM into the container, dracut ours ---
               dnf -y install out-kernel/*.rpm
+              # The Adreno driver is built-in and probes inside the initramfs;
+              # stage the device GPU firmware so the first fw request succeeds
+              # (gts9wifi.conf install_items pulls these into the image).
+              curl -sfL "$FIRMWARE_URL" -o /tmp/fw.tar.gz
+              echo "$FIRMWARE_SHA256  /tmp/fw.tar.gz" | sha256sum -c -
+              tar xzf /tmp/fw.tar.gz -C /
               cp -a /work/boot/dracut/90gts9wifi-usbnet /usr/lib/dracut/modules.d/
               cp /work/boot/dracut/dracut.conf.d/gts9wifi.conf /usr/lib/dracut/dracut.conf.d/
               dracut --kver "$KVER" --force /tmp/initramfs.img
