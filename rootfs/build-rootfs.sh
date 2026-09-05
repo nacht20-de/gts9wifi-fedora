@@ -242,6 +242,11 @@ else
     missing_assets+=("ssh-key.pub (your public key for passwordless first-boot SSH)")
 fi
 
+# rmtfs arrives as a preset-enabled neighbour of qrtr but this board has no
+# modem remoteproc; left enabled it restart-loops forever ("Failed to get
+# rprocfd").
+systemctl --root="$rootfs" mask rmtfs.service >/dev/null 2>&1 || true
+
 echo ">>> Enabling services"
 if [ "$desktop" = "gnome" ]; then
     systemctl --root="$rootfs" enable gdm >/dev/null 2>&1 \
