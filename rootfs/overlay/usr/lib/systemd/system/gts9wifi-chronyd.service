@@ -1,0 +1,21 @@
+# Full override of chronyd for this board: the vendor unit's namespace
+# sandboxing cannot be set up by this kernel (226/NAMESPACE), and an RTC-less
+# tablet without time sync breaks rpm signature checks and TLS.  A plain,
+# un-sandboxed NTP daemon is the robust option here.  Aliased over
+# chronyd.service by the preset/enable step in build-rootfs.sh.
+[Unit]
+Description=NTP client/server (gts9wifi override)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStartPre=/usr/bin/mkdir -p /var/lib/chrony /run/chrony
+ExecStart=/usr/sbin/chronyd
+ExecReload=/usr/bin/chronyc reload sources
+RuntimeDirectory=chrony
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+Alias=chronyd.service
