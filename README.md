@@ -1,7 +1,7 @@
 # Fedora on the Samsung Galaxy Tab S9 Wi-Fi (gts9wifi, SM-X710)
 
 Mainline Linux (7.2-rc3 + port patches) with a Fedora 44 userland on the
-Tab S9 Wi-Fi: native display, touch, S Pen, Wi-Fi, speakers, battery and
+Tab S9 Wi-Fi: native display, touch, Wi-Fi, speakers, battery and
 USB-C/Type-C PD, booting from the eMMC Android boot chain into a Fedora
 root on the microSD.  This repo builds everything for Fedora: the rootfs,
 a kernel RPM, the Android boot-image-v4 bundle, and a TWRP flash zip.
@@ -14,7 +14,8 @@ probe, ambient-light sensing over D-Bus, password login.
 | Area | Status |
 |---|---|
 | Display (2560×1600 AMOLED, DSI + DSC) | ✅ a cold-boot revive service runs automatically |
-| Touchscreen, S Pen digitizer | ✅ |
+| Touchscreen | ✅ |
+| S Pen digitizer | ⚠️ detected, but input behaves erratically |
 | Wi-Fi (QCA6490 / ath11k) | ✅ cold start fixed via the AOP PDC init table |
 | Bluetooth | ✅ native BD address auto-provisioned (applies from the second boot after a bundle flash) |
 | Speakers (4× CS35L45), DMIC capture | ✅ volume capped ~-19 dB (speaker-protection DSP not loaded) |
