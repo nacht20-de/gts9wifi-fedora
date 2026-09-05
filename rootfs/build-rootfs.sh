@@ -92,6 +92,12 @@ if [ "$desktop" = "gnome" ]; then
         qcom-wwan-firmware || true
     dnf -y --installroot="$rootfs" --use-host-config --setopt=tsflags=nodocs \
         install atheros-firmware qcom-firmware || true
+    # GNOME's font defaults name Adwaita Sans/Mono, but those packages ride in
+    # as weak deps that install_weak_deps=False strips.  Missing, Pango
+    # resolves "Adwaita Mono" to proportional Noto Sans and every terminal
+    # renders letterspaced (verified on hardware, 2026-09-05).
+    dnf -y --installroot="$rootfs" --use-host-config --setopt=tsflags=nodocs \
+        install adwaita-mono-fonts adwaita-sans-fonts
 fi
 
 echo ">>> Installing native build dependencies (build container only)"
