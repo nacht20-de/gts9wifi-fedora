@@ -1,0 +1,10 @@
+#!/bin/sh
+# Samsung's stock persist partition ships the SSC sensor registry with
+# root-only permissions; hexagonrpcd runs as the fastrpc user and its
+# registry sync dies on every write (Permission denied) - the SSC never
+# finishes discovery and sensors stay dead.  Open the registry tree up
+# after the persist partition mounts.
+set -eu
+REG=/mnt/vendor/persist/sensors
+[ -d "$REG" ] || exit 0
+chmod -R a+rwX "$REG"

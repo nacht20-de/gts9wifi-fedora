@@ -112,8 +112,12 @@ meson setup "$sscdir/build" "$sscdir" -Dprefix=/usr -Db_lto=true
 meson compile -C "$sscdir/build"
 DESTDIR="$sscdir/staging" meson install --no-rebuild -C "$sscdir/build"
 cp -a "$sscdir/staging/." "$rootfs/"
-# Let the iio-sensor-proxy build below find the staged libssc.
-export PKG_CONFIG_PATH="$sscdir/staging/usr/lib64/pkgconfig:$sscdir/staging/usr/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+# Also install libssc into the build container itself: the iio-sensor-proxy
+# meson check links against the .pc's libdir, which only resolves if the
+# library really exists at /usr/lib64 in the container.  Without this the
+# proxy silently builds the kernel-IIO backend and serves no sensors.
+cp -a "$sscdir/staging/." /
+export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
 echo ">>> Building pd-mapper 1.1 (not in Fedora)"
 # Binary only: the sm8550 ADSP boots without service-registry JSONs (verified
@@ -148,6 +152,10 @@ if [ -d "$rootfs/usr/lib64/systemd/system" ]; then
     rmdir "$rootfs/usr/lib64/systemd/system" "$rootfs/usr/lib64/systemd" \
         2>/dev/null || true
 fi
+
+# The Workstation environment installs Fedora's iio-sensor-proxy (kernel
+# IIO backend); drop it so our libssc-linked build owns the files cleanly.
+dnf -y --installroot="$rootfs" --use-host-config -q remove iio-sensor-proxy || true
 
 echo ">>> Building iio-sensor-proxy 3.9 with libssc support"
 # Fedora's own build may not link libssc; build it exactly like the pmOS port
@@ -256,6 +264,14 @@ if [ "$desktop" = "gnome" ]; then
     # both the usb0 debug network and remote support; allow it permanently.
     chroot "$rootfs" firewall-offline-cmd --add-service=ssh >/dev/null 2>&1 \
         || echo "    WARN: could not allow ssh in the firewall" >&2
+    # abrt only produces signature-error noise on an RTC-less tablet whose
+    # clock starts wrong; an appliance image does not want it.
+    dnf -y --installroot="$rootfs" --use-host-config -q remove abrt abrt-addon-* abrt-desktop abrt-java-connector abrt-retrace-client abrt-cli 2>/dev/null || true
+    # Tablet UX: log straight in.  Also sidesteps the first-ever-login race
+    # where gnome-shell aborts building the OSK before IBus has enumerated
+    # engines (turn off in GNOME Settings > Users if unwanted).
+    printf "[daemon]\nAutomaticLoginEnable=True\nAutomaticLogin=%s\n" "$build_user" \
+        > "$rootfs/etc/gdm/custom.conf"
 fi
 for unit in \
     sshd NetworkManager \
@@ -266,7 +282,7 @@ for unit in \
     gts9wifi-adsp-boot \
     gts9wifi-panel-coldboot-recover \
     gts9wifi-grow-rootfs \
-    gts9wifi-usb-net gts9wifi-wifi-recover \
+    gts9wifi-usb-net gts9wifi-wifi-recover gts9wifi-sensor-registry-perms \
     mnt-vendor-persist.mount vendor-dsp.mount vendor-firmware_mnt.mount
 do
     systemctl --root="$rootfs" enable "$unit" >/dev/null 2>&1 \

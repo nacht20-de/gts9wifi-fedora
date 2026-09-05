@@ -1,0 +1,13 @@
+[Unit]
+Description=Make the Samsung sensor registry writable for hexagonrpcd
+Requires=mnt-vendor-persist.mount
+After=mnt-vendor-persist.mount
+Before=hexagonrpcd-adsp-sensorspd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gts9wifi-sensor-registry-perms
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
