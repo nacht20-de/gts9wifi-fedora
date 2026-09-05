@@ -1,0 +1,9 @@
+[Unit]
+Description=Keep /tmp/.X11-unix root-owned for XWayland ownership checks
+# XWayland requires /tmp/.X11-unix to be owned by root or the session user;
+# whatever removes and recreates it per-uid mid-boot makes every other uid's
+# gnome-shell abort.  This guard re-roots it the instant it reappears.
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'chown root:root /tmp/.X11-unix 2>/dev/null || true; chmod 1777 /tmp/.X11-unix 2>/dev/null || true'

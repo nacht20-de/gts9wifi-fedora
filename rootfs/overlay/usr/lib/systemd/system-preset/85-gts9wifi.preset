@@ -19,6 +19,7 @@ enable gts9wifi-grow-rootfs.service
 enable gts9wifi-usb-net.service
 enable gts9wifi-wifi-recover.service
 enable gts9wifi-sensor-registry-perms.service
+enable gts9wifi-x11-dir-fix.path
 enable mnt-vendor-persist.mount
 enable vendor-dsp.mount
 enable vendor-firmware_mnt.mount

@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for /tmp/.X11-unix reappearing with a session uid
+
+[Path]
+PathExists=/tmp/.X11-unix
+Unit=gts9wifi-x11-dir-fix.service
+
+[Install]
+WantedBy=multi-user.target
