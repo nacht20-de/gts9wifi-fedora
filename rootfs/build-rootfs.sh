@@ -283,7 +283,7 @@ for unit in \
     gts9wifi-panel-coldboot-recover \
     gts9wifi-grow-rootfs \
     gts9wifi-usb-net gts9wifi-wifi-recover gts9wifi-sensor-registry-perms \
-    gts9wifi-x11-dir-fix.path \
+    gts9wifi-x11-dir-fix.path gts9wifi-chronyd \
     mnt-vendor-persist.mount vendor-dsp.mount vendor-firmware_mnt.mount
 do
     systemctl --root="$rootfs" enable "$unit" >/dev/null 2>&1 \
