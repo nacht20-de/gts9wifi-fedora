@@ -247,6 +247,10 @@ if [ "$desktop" = "gnome" ]; then
     systemctl --root="$rootfs" enable gdm >/dev/null 2>&1 \
         || echo "    WARN: gdm not found" >&2
     systemctl --root="$rootfs" set-default graphical.target >/dev/null 2>&1 || true
+    # The Workstation firewall zone blocks inbound ssh, which would defeat
+    # both the usb0 debug network and remote support; allow it permanently.
+    chroot "$rootfs" firewall-offline-cmd --add-service=ssh >/dev/null 2>&1 \
+        || echo "    WARN: could not allow ssh in the firewall" >&2
 fi
 for unit in \
     sshd NetworkManager \
