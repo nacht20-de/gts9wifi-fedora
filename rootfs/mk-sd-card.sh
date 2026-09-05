@@ -90,8 +90,8 @@ if [ -d "$assets/modules/$kver" ]; then
     mkdir -p "$m_root/usr/lib/modules"
     cp -a "$assets/modules/$kver" "$m_root/usr/lib/modules/"
     depmod -b "$m_root" "$kver"
-else
-    echo "    WARN: no kernel modules for $kver — the rootfs will not boot"
+elif [ ! -d "$m_root/usr/lib/modules/$kver" ]; then
+    echo "    WARN: no kernel modules for $kver (neither local assets nor the tarball) — the rootfs will not boot"
 fi
 if [ -f "$assets/ssh-key.pub" ]; then
     user="${GTS9_USER:-fedora}"
