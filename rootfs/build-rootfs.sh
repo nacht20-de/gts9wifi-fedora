@@ -267,12 +267,6 @@ if [ "$desktop" = "gnome" ]; then
     # abrt only produces signature-error noise on an RTC-less tablet whose
     # clock starts wrong; an appliance image does not want it.
     dnf -y --installroot="$rootfs" --use-host-config -q remove abrt abrt-addon-* abrt-desktop abrt-java-connector abrt-retrace-client abrt-cli 2>/dev/null || true
-    # Tablet UX: log straight in.  Also sidesteps the first-ever-login race
-    # where gnome-shell aborts building the OSK before IBus has enumerated
-    # engines (turn off in GNOME Settings > Users if unwanted).
-    mkdir -p "$rootfs/etc/gdm"
-    printf "[daemon]\nAutomaticLoginEnable=True\nAutomaticLogin=%s\n" "$build_user" \
-        > "$rootfs/etc/gdm/custom.conf"
 fi
 for unit in \
     sshd NetworkManager \
