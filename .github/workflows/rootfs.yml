@@ -28,6 +28,13 @@ on:
         description: "sha256 of the firmware payload"
         default: "30cace40556fdaf1577c76bedc1b1a6236f4acc23e9300253b3834fa7ed4bab5"
         type: string
+      release_tag:
+        description: "Release tag to (re)publish the finished assets to, e.g. rootfs-f44-gnome-3 (empty = skip publishing)"
+        default: ""
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
   build-rootfs:
@@ -66,6 +73,17 @@ jobs:
       - name: Checksum
         run: |
           cd out && sha256sum *.tar.gz rootfs-manifest.txt > SHA256SUMS && cat SHA256SUMS
+
+      # The runner uploads straight to the release: there is no API to turn an
+      # Actions artifact into a release asset, and doing it from here avoids a
+      # ~2 GB download/upload round-trip through a personal machine.  --clobber
+      # replaces same-named assets, so the tag keeps a stable asset set.
+      - name: Publish assets to the named release
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REL: ${{ inputs.release_tag }}
+        run: gh release upload "$REL" --clobber out/*.tar.gz out/rootfs-manifest.txt out/SHA256SUMS
 
       - name: Upload rootfs tarball
         uses: actions/upload-artifact@v4
