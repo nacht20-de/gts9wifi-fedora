@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=net.hadess.SensorProxy
+Exec=/usr/libexec/iio-sensor-proxy
+User=root
+SystemdService=iio-sensor-proxy.service
