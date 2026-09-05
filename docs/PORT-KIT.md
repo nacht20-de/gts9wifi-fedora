@@ -5,9 +5,8 @@
 > documentation. For installing, see [INSTALL.md](../INSTALL.md); for the
 > overview and hardware status, the [README](../README.md).
 
-Everything extracted from the working postmarketOS port (repo: `../pmos-gts9wifi-build`)
-and the live device (`phablet@172.16.42.1` over USB network), assembled for a
-Fedora/pocketblue-style port. Captured 2026-08-29, device running
+Everything extracted from the working device port and the live device
+(`phablet@172.16.42.1` over USB network), assembled for a Fedora-style port. Captured 2026-08-29, device running
 `7.2.0-rc3 #121-samsung-gts9wifi-mainline`.
 
 ## Kit layout
@@ -38,7 +37,7 @@ Sizes for `init_boot` and `vbmeta` re-verified from TWRP `blockdev
 them as 96M/4M.
 
 Pagesize 4096. The bundle that produces these is
-`scripts/build-android-v4-bundle.sh` + `bundle-inputs/` in the pmos repo — **fully
+the original port's `scripts/build-android-v4-bundle.sh` + `bundle-inputs/` — **fully
 distro-agnostic**, reusable for Fedora with only the vendor_boot cmdline changed.
 
 ### Rootfs: external microSD (how this device actually runs)
@@ -61,11 +60,11 @@ Console + `clk/pd/regulator_ignore_unused`, `rootwait`, `mem_sleep_default=s2idl
 
 ## Runtime dependencies on stock Android partitions (critical for Fedora design)
 
-The working pmos system **mounts Android partitions at runtime** — this is not
+The working system **mounts Android partitions at runtime** — this is not
 first-boot extraction:
 
 - `gts9wifi-android-parts.service` → `make-dynpart-mappings /dev/disk/by-partlabel/super`
-  (pmOS tool, dm-linear mapping of dynamic partitions) → `/dev/mapper/vendor`
+  (dm-linear mapping of dynamic partitions) → `/dev/mapper/vendor`
 - `vendor.mount`: super/vendor **erofs** → `/vendor` (read-only)
 - `vendor-dsp.mount`: partlabel `dsp` (sda16, ext4) → `/vendor/dsp`
 - `mnt-vendor-persist.mount`: partlabel `persist` (sda5) → `/mnt/vendor/persist`
@@ -79,7 +78,7 @@ device — persist needs a permanent RW mount and super/vendor need live mapping
 `make-dynpart-mappings` has no Fedora equivalent yet (small tool; worst case: port it,
 or replicate the devicekit approach).
 
-## Kernel (from the pmos repo, converts to RPM)
+## Kernel (converts to RPM)
 
 Source of truth: `pmaports/device/testing/linux-samsung-gts9wifi-mainline/`.
 Mainline 7.2-rc3 + 20 patches/ODMs: `fts1ba90a.c` (touch), `panel-samsung-ana38407.c`,

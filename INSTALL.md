@@ -9,24 +9,20 @@ system. The layout produced here:
 - **microSD** carries the Fedora root (`/` on p2) plus a small ext2 `/boot`.
   Stock Android data on the eMMC is not touched.
 
-Estimated time: ~1 hour, most of it unattended.
-
 ## Prerequisites
 
 1. **SM-X710 with an unlocked bootloader and TWRP in the recovery
-   partition.** Unlocking/flashing TWRP is outside this guide; the
-   [pmos-gts9wifi-build](https://github.com/nacht20-de/pmos-gts9wifi-build)
-   and UBports gts9 ports describe it for this device.
+   partition.** Unlocking and flashing TWRP is outside this guide.
 2. **A spare microSD** (16 GB+, will be erased) — your daily card is never
    touched.
-3. **A Linux PC with `adb`**, connected by USB.
-4. **The firmware payload.** The Wi-Fi/BT/ADSP/audio/sensors blobs are
-   extracted from the tablet's own stock partitions (apnhlos, dsp, persist)
-   by the port kit (`port-kit/firmware-extract/`). This step currently
-   requires either a running postmarketOS install on the tablet (then
-   `rootfs/fetch-local-assets.sh` pulls everything over USB) or a local copy
-   of the port kit. Without it the build still completes, but Wi-Fi, BT,
-   audio and the ADSP will be dead on the tablet.
+3. **A Linux PC with `adb`**, connected by USB, with this repo cloned:
+   `git clone https://github.com/nacht20-de/gts9wifi-fedora` (the SD-writing
+   script lives in the repo).
+4. **The firmware payload** — only needed when building the rootfs
+   yourself; the released rootfs and the firmware asset on the kernel
+   release already contain everything. The blobs are extracted from the
+   tablet's own stock partitions (apnhlos, dsp, persist); without them
+   Wi-Fi, BT, audio and the ADSP stay dead.
 
 ## 1. Get or build the rootfs
 
@@ -50,9 +46,10 @@ present). `GTS9_DESKTOP=core` builds a small headless debug image.
 
 ## 2. Write the SD card
 
-    sudo ./rootfs/mk-sd-card.sh out/gts9wifi-fedora-44-rootfs.tar.gz /dev/sdX
+    sudo ./rootfs/mk-sd-card.sh <path-to>/gts9wifi-fedora-44-rootfs.tar.gz /dev/sdX
 
-Use the spare card's device node. The script labels the partitions with the
+Use the downloaded tarball (or your build output) and the spare card's
+device node. The script labels the partitions with the
 UUIDs the boot bundle's cmdline expects; on first boot the root filesystem
 grows to fill the card automatically.
 
@@ -86,9 +83,9 @@ DTB handles cold starts). A USB debug network appears as `usb0`:
 
     ssh fedora@172.16.42.1         # password: fedora (or your injected key)
 
-Configure Wi-Fi with `nmcli device wifi connect "<SSID>" password "<pw>"`.
-From here on the tablet is a normal (headless-core) Fedora system: add your
-packages, a desktop, etc.
+Configure Wi-Fi from GNOME Settings (or `nmcli device wifi connect "<SSID>"
+password "<pw>"`). You are in a full Fedora Workstation GNOME desktop; the
+clock syncs automatically once Wi-Fi connects.
 
 ## 6. Updating the kernel/boot bundle
 
@@ -112,8 +109,13 @@ survive every step here.
 
 ## Known issues on first boot
 
-- **Bluetooth** completes kernel-side setup but does not register with
-  bluez management (`btmgmt` shows no index) — pairing is not usable yet.
-- **Sensors** (accelerometer/ambient light) are dead: SSC discovery never
-  completes, same as on pmOS.
-- `/vendor` (the super partition) is not mounted; SELinux is permissive.
+- **Bluetooth** needs one extra reboot after flashing a new boot bundle:
+  the address provisioning patches the bundle DTBs on the first boot and
+  applies from the next one.
+- **Screen auto-rotate** does not work yet: the SSC sensors are alive
+  (ambient light is already served to the desktop) but iio-sensor-proxy's
+  orientation property never turns true — an upstream proxy/libssc issue,
+  not a configuration problem.
+- Hardware video decode is disabled (the Samsung-signed VPU firmware has
+  not been sourced); camera has no drivers; `/vendor` (the super
+  partition) is not mounted; SELinux is permissive.
