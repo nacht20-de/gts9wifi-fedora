@@ -3,13 +3,11 @@
 Mainline Linux (7.2-rc3 + port patches) with a Fedora 44 userland on the
 Tab S9 Wi-Fi: native display, touch, S Pen, Wi-Fi, speakers, battery and
 USB-C/Type-C PD, booting from the eMMC Android boot chain into a Fedora
-root on the microSD. All device knowledge is inherited from the working
-postmarketOS port (https://github.com/nacht20-de/pmos-gts9wifi-build);
-this repo packages it for Fedora: rootfs build, a kernel RPM, the
-Android boot-image-v4 bundle, and a TWRP flash zip.
+root on the microSD.  This repo builds everything for Fedora: the rootfs,
+a kernel RPM, the Android boot-image-v4 bundle, and a TWRP flash zip.
 
-Verified on hardware, including a full cold start (poweroff → power on):
-Wi-Fi associates and the Bluetooth controller completes setup on its own.
+Verified on hardware end to end: cold start, GPU acceleration from first
+probe, ambient-light sensing over D-Bus, password login.
 
 ## What works
 
@@ -18,14 +16,15 @@ Wi-Fi associates and the Bluetooth controller completes setup on its own.
 | Display (2560×1600 AMOLED, DSI + DSC) | ✅ a cold-boot revive service runs automatically |
 | Touchscreen, S Pen digitizer | ✅ |
 | Wi-Fi (QCA6490 / ath11k) | ✅ cold start fixed via the AOP PDC init table |
-| Bluetooth (hci_uart QCA) | ⚠️ kernel setup + firmware OK; bluez mgmt registration still open |
+| Bluetooth | ✅ native BD address auto-provisioned (applies from the second boot after a bundle flash) |
 | Speakers (4× CS35L45), DMIC capture | ✅ volume capped ~-19 dB (speaker-protection DSP not loaded) |
 | Battery / charging incl. PPS (SM5714 + SM5440) | ✅ |
 | USB (gadget debug net, host), Type-C PD, docks | ✅ |
 | USB-C DisplayPort altmode | ✅ with deferred-HPD workaround |
-| GPU (Adreno 740), hw video decode (iris) | ✅ Samsung-signed firmware |
+| GPU (Adreno 740) | ✅ Samsung-signed zap/GMU firmware, in the initramfs |
+| Hardware video decode (iris) | ❌ Samsung-signed vpu30_4v.mbn not yet sourced |
 | Power/volume keys, book-cover lid, suspend (s2idle) | ✅ |
-| Sensors (accelerometer / ambient light via SSC) | ❌ SSC discovery never completes (same as pmOS) |
+| Sensors (SSC: accelerometer, rotation vector, ambient light) | ⚠️ SSC fully alive; ambient light serves over D-Bus; screen auto-rotate pending an upstream iio-sensor-proxy/libssc fix |
 | Camera | ❌ no drivers |
 | /vendor super partition (erofs) | ❌ needs make-dynpart-mappings port |
 | SELinux | permissive |
@@ -50,8 +49,8 @@ everything needed:
 - **`rootfs-f44-gnome-…`** — the turnkey rootfs tarball: GNOME Workstation
   + gdm, the device stack, all device firmware and the kernel modules
   matching the boot bundle. Login `fedora` / `fedora`.
-- **`kernel-…-gts9wifi-2`** — the TWRP flash zip (boot bundle), the raw
-  images, the kernel RPM and the firmware payload asset.
+- **`kernel-…-gts9wifi-3`** — the TWRP flash zip (boot bundle), the
+  kernel RPM and the firmware payload asset.
 
 Write the rootfs to a microSD with `rootfs/mk-sd-card.sh`, flash the TWRP
 zip, boot — see [INSTALL.md](INSTALL.md). CI artifacts also exist per
@@ -61,7 +60,7 @@ successful
 ## Layout
 
 - `rootfs/` — build-rootfs.sh (Fedora aarch64 rootfs build), overlay/
-  (device services, mounts, udev rules, UCM translated from the pmOS port),
+  (device services, mounts, udev rules, UCM),
   mk-sd-card.sh (SD assembly), fetch-local-assets.sh (device firmware/
   modules/ssh key — needs the port kit).
 - `kernel/` — prepare.sh + kernel.spec (kernel RPM), the 18 port patches,
@@ -91,11 +90,3 @@ never committed; see [INSTALL.md](INSTALL.md) for the firmware story.
 libssc and pd-mapper are not in Fedora and are built from source; hexagonrpcd
 carries the port's Samsung sensor-registry patches; iio-sensor-proxy builds
 against libssc.
-
-## Credits
-
-Device bring-up and the pmOS port: the
-[pmos-gts9wifi-build](https://github.com/nacht20-de/pmos-gts9wifi-build)
-repo and the Tab S9 port contributors; boot-chain knowledge cross-checked
-against the UBports gts9 port. The DTS descends from the Qualcomm SM8550
-reference and the Samsung downstream drop.

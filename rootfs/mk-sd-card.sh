@@ -32,7 +32,10 @@ boot_uuid="b7869a36-d9a0-4403-b9fd-e0ebec016b76"
 root_uuid="d2a235a8-37cd-4bac-be53-16caf2bfdd21"
 
 boot_files="$assets/boot-files"
-[ -d "$boot_files" ] || { echo "missing $boot_files — run rootfs/fetch-local-assets.sh" >&2; exit 1; }
+# Optional: the eMMC boot chain (kernel + initramfs from the bundle) never
+# reads the SD /boot partition, so a fresh checkout without local assets
+# just gets an empty one.
+[ -d "$boot_files" ] || echo "    NOTE: no $boot_files — /boot stays empty (the eMMC chain does not use it)" >&2
 
 cleanup() {
     [ -n "${m_boot:-}" ] && umount -f "$m_boot" 2>/dev/null || true
@@ -72,7 +75,7 @@ mkfs.ext4 -q -U "$root_uuid" -L pmOS_root "$rp"
 echo ">>> boot partition"
 m_boot="$(mktemp -d)"
 mount "$bp" "$m_boot"
-cp -a "$boot_files"/. "$m_boot"/
+[ -d "$boot_files" ] && cp -a "$boot_files"/. "$m_boot"/
 
 echo ">>> root partition"
 m_root="$(mktemp -d)"
