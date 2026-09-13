@@ -1,24 +1,27 @@
 # Installing Fedora on the Galaxy Tab S9 Wi-Fi (SM-X710)
 
 End-to-end, from a tablet with an unlocked bootloader to a booting Fedora
-system. The layout produced here:
+system. The root lives in **internal storage**: the userdata partition is
+reformatted as one ext4 carrying the boot cmdline's root UUID, so no
+microSD is needed (an SD prepared by `mk-sd-card.sh` with the same UUID
+remains a bootable rescue card — never boot with both inserted).
 
-- **eMMC boot partitions** (`boot`, `init_boot`, `vendor_boot`, `dtbo`) carry
-  this repo's Android boot-image-v4 bundle: the mainline kernel with the
-  board DTB, a dracut initramfs, and the kernel cmdline (`root=UUID=… rw`).
-- **microSD** carries the Fedora root (`/` on p2) plus a small ext2 `/boot`.
-  Stock Android data on the eMMC is not touched.
+- **eMMC/UFS boot partitions** (`boot`, `init_boot`, `vendor_boot`, `dtbo`)
+  carry this repo's Android boot-image-v4 bundle: mainline kernel + board
+  DTB + dracut initramfs + the kernel cmdline (`root=UUID=… rw`).
+- **userdata** (sda34, ~105 GB) carries the Fedora root as a single ext4.
+
+**This destroys Android's data** (the stock f2fs is reformatted). Android
+stays restorable later via TWRP Format Data or Odin — the boot-chain
+partitions and recovery are never touched by anything here.
 
 ## Prerequisites
 
 1. **SM-X710 with an unlocked bootloader and TWRP in the recovery
    partition.** Unlocking and flashing TWRP is outside this guide.
-2. **A spare microSD** (16 GB+, will be erased) — your daily card is never
-   touched.
-3. **A Linux PC with `adb`**, connected by USB, with this repo cloned:
-   `git clone https://github.com/nacht20-de/gts9wifi-fedora` (the SD-writing
-   script lives in the repo).
-4. **The firmware payload** — only needed when building the rootfs
+2. **A Linux PC with `adb`**, connected by USB, with this repo cloned:
+   `git clone https://github.com/nacht20-de/gts9wifi-fedora`.
+3. **The firmware payload** — only needed when building the rootfs
    yourself; the released rootfs and the firmware asset on the kernel
    release already contain everything. The blobs are extracted from the
    tablet's own stock partitions (apnhlos, dsp, persist); without them
@@ -44,14 +47,21 @@ Optional environment: `GTS9_USER` names the first-boot user
 login; an SSH key from `local-assets/ssh-key.pub` is installed when
 present). `GTS9_DESKTOP=core` builds a small headless debug image.
 
-## 2. Write the SD card
+## 2. Install the rootfs to internal storage (TWRP)
 
-    sudo ./rootfs/mk-sd-card.sh <path-to>/gts9wifi-fedora-44-rootfs.tar.gz /dev/sdX
+Boot TWRP (Volume Up + Power past the Samsung logo), connect USB, then
+from the PC:
 
-Use the downloaded tarball (or your build output) and the spare card's
-device node. The script labels the partitions with the
-UUIDs the boot bundle's cmdline expects; on first boot the root filesystem
-grows to fill the card automatically.
+    ./rootfs/mk-internal-storage.sh <path-to>/gts9wifi-fedora-44-rootfs.tar.gz
+
+The script verifies the device is in recovery, checks the codename
+(gts9/gts9wifi) and model (SM-X710), resolves userdata by partition label,
+checks its size, prints a prominent warning about the data loss, and
+requires typing `DESTROY` before it formats. It also applies the
+local-assets extras when present (firmware payload, kernel modules, ssh
+key — the same injections `mk-sd-card.sh` does; the release tarball
+already carries all three). It never touches any other partition and
+never reboots the tablet.
 
 ## 3. Get the boot bundle
 
@@ -65,21 +75,25 @@ file lists each image.
 
 1. Boot TWRP: power off, then hold **Volume Up + Power** past the Samsung
    logo. (Volume Down + USB is download mode — not what you want.)
-2. Copy the zip onto the SD card (from Fedora: `/home/<user>/`; from the PC:
-   `adb push <zip> /sdroot/...` or use TWRP's MTP).
-3. TWRP → Install → select the zip. The installer verifies the device
-   (gts9/gts9wifi, SM-X710) and every partition size before writing
-   `boot`, `init_boot`, `vendor_boot`, `dtbo`; it never touches userdata,
-   super, EFS or the recovery, and it preserves a read-only vbmeta that
-   already carries AVB flags 2. It does not reboot on its own.
+2. Push the zip from the PC: `adb push
+   gts9wifi-fedora-7.2.0-rc3-gts9wifi.zip /tmp/inst.zip`.
+3. TWRP → Install → select `/tmp/inst.zip` (or `adb shell twrp install
+   /tmp/inst.zip`). The installer verifies the device (gts9/gts9wifi,
+   SM-X710) and every partition size before writing `boot`, `init_boot`,
+   `vendor_boot`, `dtbo`; it never touches userdata, super, EFS or the
+   recovery, and it preserves a read-only vbmeta that already carries AVB
+   flags 2. It does not reboot on its own.
 4. Reboot → System.
 
 ## 5. First boot
 
-The first boot takes a couple of minutes: the root filesystem is grown to
-fill the card, the panel cold-boot recovery runs a platform PM cycle, and
-Wi-Fi/BT power up through the WCN sequencer (the AOP PDC init table in the
-DTB handles cold starts). A USB debug network appears as `usb0`:
+**Remove the microSD if one is inserted** (a rescue card carries the same
+root UUID — exactly one of the two must be present). The first boot takes
+a couple of minutes: the panel cold-boot recovery runs a platform PM
+cycle, and Wi-Fi/BT power up through the WCN sequencer (the AOP PDC init
+table in the DTB handles cold starts). The root filesystem is created at
+full partition size — nothing to grow. A USB debug network appears as
+`usb0`:
 
     ssh fedora@172.16.42.1         # password: fedora (or your injected key)
 
@@ -104,8 +118,11 @@ always matches.
 
 Keep the previous release zip — reflashing it from TWRP restores the
 previous boot chain in two minutes. The installer never writes anything
-outside the four boot partitions, so the SD root and stock Android data
-survive every step here.
+outside the four boot partitions, so the internal root survives every
+bundle reflash. If the internal root itself is broken, a microSD prepared
+by `mk-sd-card.sh` boots the same system by the shared root UUID (insert
+it *instead of*, never *in addition to*, the internal root). Returning to
+Android: TWRP → Format Data, or a full Odin firmware flash.
 
 ## Known issues on first boot
 

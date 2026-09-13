@@ -2,12 +2,18 @@
 
 Mainline Linux (7.2-rc3 + port patches) with a Fedora 44 userland on the
 Tab S9 Wi-Fi: native display, touch, Wi-Fi, speakers, battery and
-USB-C/Type-C PD, booting from the eMMC Android boot chain into a Fedora
-root on the microSD.  This repo builds everything for Fedora: the rootfs,
-a kernel RPM, the Android boot-image-v4 bundle, and a TWRP flash zip.
+USB-C/Type-C PD, booting from the Android boot chain into a Fedora root on
+the **internal UFS storage** — the userdata partition reformatted as one
+ext4 carrying the boot cmdline's root UUID, no microSD involved.  This
+repo builds everything for Fedora: the rootfs, a kernel RPM, the Android
+boot-image-v4 bundle, and a TWRP flash zip.
 
 Verified on hardware end to end: cold start, GPU acceleration from first
-probe, ambient-light sensing over D-Bus, password login.
+probe, ambient-light sensing over D-Bus, password login.  The
+internal-storage install reuses that exact kernel, bundle and cmdline —
+the root is looked up by UUID, so the boot chain does not care which
+medium carries it.  `mk-sd-card.sh` remains to build a rescue card with
+the same root UUID; never boot with both inserted.
 
 ## What works
 
@@ -32,9 +38,10 @@ probe, ambient-light sensing over D-Bus, password login.
 
 ## Installation
 
-See [INSTALL.md](INSTALL.md) for the full walk-through. In short: build (or
-download) the Fedora SD-card rootfs, flash the boot bundle to the eMMC boot
-partitions from TWRP, and boot with the card inserted. USB networking comes
+See [INSTALL.md](INSTALL.md) for the full walk-through. In short: build
+(or download) the Fedora rootfs, install it to the tablet's userdata
+partition from TWRP with `rootfs/mk-internal-storage.sh`, flash the boot
+bundle, and boot — no microSD involved. USB networking comes
 up on usb0 for debugging: `ssh fedora@172.16.42.1`.
 
 **The one rule when updating:** a new boot bundle must be paired with its
@@ -53,8 +60,9 @@ everything needed:
 - **`kernel-…-gts9wifi-3`** — the TWRP flash zip (boot bundle), the
   kernel RPM and the firmware payload asset.
 
-Write the rootfs to a microSD with `rootfs/mk-sd-card.sh`, flash the TWRP
-zip, boot — see [INSTALL.md](INSTALL.md). CI artifacts also exist per
+Install the rootfs to the tablet's internal storage with
+`rootfs/mk-internal-storage.sh`, flash the TWRP zip, boot — see
+[INSTALL.md](INSTALL.md). CI artifacts also exist per
 successful
 [Actions](https://github.com/nacht20-de/gts9wifi-fedora/actions) run.
 
@@ -62,8 +70,10 @@ successful
 
 - `rootfs/` — build-rootfs.sh (Fedora aarch64 rootfs build), overlay/
   (device services, mounts, udev rules, UCM),
-  mk-sd-card.sh (SD assembly), fetch-local-assets.sh (device firmware/
-  modules/ssh key — needs the port kit).
+  mk-internal-storage.sh (internal-storage install),
+  mk-sd-card.sh (rescue SD card, same root UUID),
+  fetch-local-assets.sh (device firmware/modules/ssh key — needs the port
+  kit).
 - `kernel/` — prepare.sh + kernel.spec (kernel RPM), the 18 port patches,
   out-of-tree drivers, board DTS and config fragment.
 - `boot/` — build-bundle.sh (Android boot-image-v4 bundle), cmdline,
