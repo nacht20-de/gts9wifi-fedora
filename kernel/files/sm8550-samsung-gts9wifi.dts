@@ -1165,6 +1165,11 @@
 		pdct-gpios = <&tlmm 137 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&epen_int_default>, <&epen_pdct_default>;
+		/* the digitizer sits in the same orientation as the FTS panel
+		 * sensor: raw WEZ01 coordinates are portrait-native and need
+		 * the same swap/invert the touchscreen node applies */
+		touchscreen-inverted-x;
+		touchscreen-swapped-x-y;
 	};
 };
 

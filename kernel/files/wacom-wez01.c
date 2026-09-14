@@ -6,6 +6,11 @@
  * driver for the Galaxy Tab S9 (SM-X710), cross-checked against the Tab S8+
  * mainline port. Only pen reporting is implemented; the IC runs its
  * factory-flashed firmware, so no firmware download path is needed.
+ *
+ * Palm rejection: while the pen is in range (hovering or touching) the FTS
+ * touchscreen must not report finger contacts.  Pen proximity is tracked
+ * here and exported through wacom_wez01_should_suppress_touch(), which the
+ * touchscreen driver queries before reporting fingers.
  */
 
 #include <linux/delay.h>
@@ -16,7 +21,20 @@
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/regulator/consumer.h>
+#include <linux/timer.h>
 #include <linux/unaligned.h>
+#include <linux/wacom_wez01.h>
+
+/* Calibration: the digitizer's usable matrix is inset from the glass;
+ * these map the glass edges onto the panel.  Tunable for calibration. */
+static int pen_x_min = 0;
+static int pen_x_max = 23575;
+static int pen_y_min = 0;
+static int pen_y_max = 14724;
+module_param(pen_x_min, int, 0644);
+module_param(pen_x_max, int, 0644);
+module_param(pen_y_min, int, 0644);
+module_param(pen_y_max, int, 0644);
 
 #define WEZ01_COM_SURVEY_EXIT		0x2d
 #define WEZ01_COM_SAMPLERATE_STOP	0x30
@@ -57,6 +75,15 @@
 /* 100 units/mm across the 11" panel's active area; libinput requires it */
 #define WEZ01_RES_UNITS_PER_MM		100
 
+/*
+ * The controller can fall silent without ever sending an out-of-range
+ * frame; if that state never cleared, the touchscreen would stay disabled
+ * for the rest of the session.  The pen sends idle frames roughly every
+ * 25 ms while in range, so a quarter of a second of silence is safely
+ * "pen gone" while never firing during real use.
+ */
+#define WEZ01_PROXIMITY_TIMEOUT_MS	250
+
 struct wacom_wez01 {
 	struct i2c_client *client;
 	struct input_dev *input;
@@ -69,7 +96,18 @@ struct wacom_wez01 {
 	s8 max_tilt_x;
 	s8 max_tilt_y;
 	bool prox;
+	struct timer_list prox_timer;
 };
+
+static atomic_t wez01_pen_proximity = ATOMIC_INIT(0);
+static atomic_t wez01_touch_suppression = ATOMIC_INIT(1);
+
+bool wacom_wez01_should_suppress_touch(void)
+{
+	return atomic_read(&wez01_touch_suppression) &&
+	       atomic_read(&wez01_pen_proximity);
+}
+EXPORT_SYMBOL_GPL(wacom_wez01_should_suppress_touch);
 
 static int wacom_wez01_send(struct wacom_wez01 *w, u8 cmd)
 {
@@ -120,19 +158,34 @@ static int wacom_wez01_query(struct wacom_wez01 *w)
 	return 0;
 }
 
-static void wacom_wez01_release(struct wacom_wez01 *w)
+/*
+ * Leave range transition: release the pen tool and clear the proximity flag
+ * that gates touchscreen reporting.  Only the first caller out of the IRQ
+ * thread and the silence timer actually emits the release events.
+ */
+static void wacom_wez01_leave_range(struct wacom_wez01 *w)
 {
-	if (!w->prox)
-		return;
+	if (atomic_cmpxchg(&wez01_pen_proximity, 1, 0) == 1) {
+		if (w->prox) {
+			input_report_abs(w->input, ABS_PRESSURE, 0);
+			input_report_abs(w->input, ABS_DISTANCE, 0);
+			input_report_key(w->input, BTN_TOUCH, 0);
+			input_report_key(w->input, BTN_STYLUS, 0);
+			input_report_key(w->input, BTN_TOOL_PEN, 0);
+			input_report_key(w->input, BTN_TOOL_RUBBER, 0);
+			input_sync(w->input);
+			w->prox = false;
+		}
+	}
+}
 
-	input_report_abs(w->input, ABS_PRESSURE, 0);
-	input_report_abs(w->input, ABS_DISTANCE, 0);
-	input_report_key(w->input, BTN_TOUCH, 0);
-	input_report_key(w->input, BTN_STYLUS, 0);
-	input_report_key(w->input, BTN_TOOL_PEN, 0);
-	input_report_key(w->input, BTN_TOOL_RUBBER, 0);
-	input_sync(w->input);
-	w->prox = false;
+static void wacom_wez01_prox_timeout(struct timer_list *t)
+{
+	struct wacom_wez01 *w = timer_container_of(w, t, prox_timer);
+
+	dev_dbg(&w->client->dev, "no pen report in %u ms; synthesising "
+		"proximity out\n", WEZ01_PROXIMITY_TIMEOUT_MS);
+	wacom_wez01_leave_range(w);
 }
 
 static irqreturn_t wacom_wez01_irq_handler(int irq, void *dev_id)
@@ -149,7 +202,8 @@ static irqreturn_t wacom_wez01_irq_handler(int irq, void *dev_id)
 		return IRQ_HANDLED;
 
 	if (!(data[0] & WEZ01_RDY)) {
-		wacom_wez01_release(w);
+		timer_shutdown_sync(&w->prox_timer);
+		wacom_wez01_leave_range(w);
 		return IRQ_HANDLED;
 	}
 
@@ -157,9 +211,24 @@ static irqreturn_t wacom_wez01_irq_handler(int irq, void *dev_id)
 	input_report_key(w->input, BTN_TOOL_PEN, !(data[0] & WEZ01_ERASER));
 	input_report_key(w->input, BTN_TOUCH, !!(data[0] & WEZ01_TIP));
 	input_report_key(w->input, BTN_STYLUS, !!(data[0] & WEZ01_SIDE));
-	touchscreen_report_pos(w->input, &w->prop,
-			       get_unaligned_be16(&data[1]),
-			       get_unaligned_be16(&data[3]), false);
+	/*
+	 * The digitizer sits in the same orientation as the FTS sensor:
+	 * invert-x + swap maps raw coordinates onto the landscape panel.
+	 * The WEZ01's usable matrix is inset from the glass (measured:
+	 * X 467..22979, Y 1509..13690), so scale it onto the full panel.
+	 */
+	{
+		int px, py;
+
+		px = get_unaligned_be16(&data[3]);
+		py = w->max_x - get_unaligned_be16(&data[1]);
+		px = clamp(px, pen_x_min, pen_x_max);
+		py = clamp(py, pen_y_min, pen_y_max);
+		px = (px - pen_x_min) * 2560 / (pen_x_max - pen_x_min);
+		py = (py - pen_y_min) * 1600 / (pen_y_max - pen_y_min);
+		input_report_abs(w->input, ABS_X, px);
+		input_report_abs(w->input, ABS_Y, py);
+	}
 	input_report_abs(w->input, ABS_PRESSURE,
 			 ((data[5] & 0x0f) << 8) | data[6]);
 	input_report_abs(w->input, ABS_DISTANCE, data[7]);
@@ -167,8 +236,19 @@ static irqreturn_t wacom_wez01_irq_handler(int irq, void *dev_id)
 	input_report_abs(w->input, ABS_TILT_Y, (s8)data[9]);
 	input_sync(w->input);
 	w->prox = true;
+	atomic_set(&wez01_pen_proximity, 1);
+	mod_timer(&w->prox_timer,
+		  jiffies + msecs_to_jiffies(WEZ01_PROXIMITY_TIMEOUT_MS));
 
 	return IRQ_HANDLED;
+}
+
+static void wacom_wez01_stop_timer(void *data)
+{
+	struct wacom_wez01 *w = data;
+
+	timer_shutdown_sync(&w->prox_timer);
+	wacom_wez01_leave_range(w);
 }
 
 static int wacom_wez01_probe(struct i2c_client *client)
@@ -218,6 +298,11 @@ static int wacom_wez01_probe(struct i2c_client *client)
 		w->max_tilt_y = 63;
 	}
 
+	timer_setup(&w->prox_timer, wacom_wez01_prox_timeout, 0);
+	ret = devm_add_action_or_reset(dev, wacom_wez01_stop_timer, w);
+	if (ret)
+		return ret;
+
 	input = devm_input_allocate_device(dev);
 	if (!input)
 		return -ENOMEM;
@@ -231,16 +316,16 @@ static int wacom_wez01_probe(struct i2c_client *client)
 	input_set_capability(input, EV_KEY, BTN_TOOL_PEN);
 	input_set_capability(input, EV_KEY, BTN_TOOL_RUBBER);
 
-	input_set_abs_params(input, ABS_X, 0, w->max_x, 4, 0);
-	input_set_abs_params(input, ABS_Y, 0, w->max_y, 4, 0);
+	input_set_abs_params(input, ABS_X, 0, 2559, 4, 0);
+	input_set_abs_params(input, ABS_Y, 0, 1599, 4, 0);
 	input_set_abs_params(input, ABS_PRESSURE, 0, w->max_pressure, 0, 0);
 	input_set_abs_params(input, ABS_DISTANCE, 0, w->max_height, 0, 0);
 	input_set_abs_params(input, ABS_TILT_X, -w->max_tilt_x, w->max_tilt_x,
 			     0, 0);
 	input_set_abs_params(input, ABS_TILT_Y, -w->max_tilt_y, w->max_tilt_y,
 			     0, 0);
-	input_abs_set_res(input, ABS_X, WEZ01_RES_UNITS_PER_MM);
-	input_abs_set_res(input, ABS_Y, WEZ01_RES_UNITS_PER_MM);
+	input_abs_set_res(input, ABS_X, 11);
+	input_abs_set_res(input, ABS_Y, 11);
 
 	__set_bit(INPUT_PROP_DIRECT, input->propbit);
 
@@ -266,6 +351,8 @@ static int wacom_wez01_suspend(struct device *dev)
 	struct wacom_wez01 *w = dev_get_drvdata(dev);
 
 	disable_irq(w->client->irq);
+	timer_shutdown_sync(&w->prox_timer);
+	wacom_wez01_leave_range(w);
 	wacom_wez01_send(w, WEZ01_COM_SAMPLERATE_STOP);
 
 	return 0;

@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/regulator/consumer.h>
 #include <linux/unaligned.h>
+#include <linux/wacom_wez01.h>
 
 #define FTS_READ_DEVICE_ID		0x22
 #define FTS_READ_FW_VERSION		0x24
@@ -228,7 +229,7 @@ static void fts1ba90a_power_off(void *data)
 	regulator_disable(ts->vddio);
 }
 
-static void fts1ba90a_report_event(struct fts1ba90a *ts, const u8 *ev)
+static void fts1ba90a_report_touch(struct fts1ba90a *ts, const u8 *ev)
 {
 	unsigned int slot, action, ttype, x, y, z;
 
@@ -243,9 +244,16 @@ static void fts1ba90a_report_event(struct fts1ba90a *ts, const u8 *ev)
 	switch (ttype) {
 	case FTS_TTYPE_NORMAL:
 	case FTS_TTYPE_GLOVE:
-	case FTS_TTYPE_PALM:
 	case FTS_TTYPE_WET:
 		break;
+	case FTS_TTYPE_PALM:
+		/*
+		 * The controller classifies large contacts as palms; let them
+		 * drop rather than report a phantom finger (palm rejection).
+		 */
+		input_mt_slot(ts->input, slot);
+		input_mt_report_slot_inactive(ts->input);
+		return;
 	default:
 		return;
 	}
@@ -272,6 +280,22 @@ static void fts1ba90a_report_event(struct fts1ba90a *ts, const u8 *ev)
 	input_report_abs(ts->input, ABS_MT_PRESSURE, z ? z : 1);
 }
 
+/*
+ * While the S Pen is within range of the digitizer, reject finger contacts
+ * (palm rejection): release every slot still active and drop this frame.
+ */
+static void fts1ba90a_suppress_touch(struct fts1ba90a *ts)
+{
+	int i;
+
+	for (i = 0; i < FTS_MAX_FINGERS; i++) {
+		input_mt_slot(ts->input, i);
+		input_mt_report_slot_inactive(ts->input);
+	}
+	input_mt_sync_frame(ts->input);
+	input_sync(ts->input);
+}
+
 static irqreturn_t fts1ba90a_irq_handler(int irq, void *dev_id)
 {
 	struct fts1ba90a *ts = dev_id;
@@ -296,11 +320,18 @@ static irqreturn_t fts1ba90a_irq_handler(int irq, void *dev_id)
 			count = 1;
 	}
 
-	for (i = 0; i < count; i++)
-		fts1ba90a_report_event(ts, ts->events + i * FTS_EVENT_SIZE);
+	for (i = 0; i < count; i++) {
+		if (wacom_wez01_should_suppress_touch()) {
+			fts1ba90a_suppress_touch(ts);
+			break;
+		}
+		fts1ba90a_report_touch(ts, ts->events + i * FTS_EVENT_SIZE);
+	}
 
-	input_mt_sync_frame(ts->input);
-	input_sync(ts->input);
+	if (!wacom_wez01_should_suppress_touch()) {
+		input_mt_sync_frame(ts->input);
+		input_sync(ts->input);
+	}
 
 	return IRQ_HANDLED;
 }

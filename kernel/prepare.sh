@@ -70,6 +70,10 @@ config TOUCHSCREEN_WACOM_WEZ01\
 grep -q 'wacom-wez01.o' drivers/input/touchscreen/Makefile || \
     echo 'obj-$(CONFIG_TOUCHSCREEN_WACOM_WEZ01) += wacom-wez01.o' >> drivers/input/touchscreen/Makefile
 
+# Shared wacom-wez01 pen-proximity/touch-suppression header (palm rejection).
+mkdir -p include/linux
+cp "$here/files/wacom_wez01.h" include/linux/
+
 # Silicon Mitus SM5714 charger / fuel gauge.
 cp "$here/files/sm5714_battery.c" drivers/power/supply/
 grep -q 'BATTERY_SM5714' drivers/power/supply/Kconfig || sed -i '/^endif # POWER_SUPPLY$/i \
