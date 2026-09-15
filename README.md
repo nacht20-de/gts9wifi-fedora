@@ -23,7 +23,7 @@ the same root UUID; never boot with both inserted.
 | Touchscreen | ✅ |
 | S Pen digitizer | ⚠️ detected, but input behaves erratically |
 | Wi-Fi (QCA6490 / ath11k) | ✅ cold start fixed via the AOP PDC init table |
-| Bluetooth | ✅ native BD address auto-provisioned (applies from the second boot after a bundle flash) |
+| Bluetooth | ✅ native BD address auto-provisioned (applies from the second boot after a bundle flash); coex lag under 2.4 GHz fixed via Samsung NVM/rampatch (KNOWN-ISSUES.md #3) |
 | Speakers (4× CS35L45), DMIC capture | ✅ volume capped ~-19 dB (speaker-protection DSP not loaded) |
 | Battery / charging incl. PPS (SM5714 + SM5440) | ✅ |
 | USB (gadget debug net, host), Type-C PD, docks | ✅ |

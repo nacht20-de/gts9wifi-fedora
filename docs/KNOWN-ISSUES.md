@@ -7,7 +7,7 @@
 |---|---|---|
 | 1 | **Battery percentage capped at 96 %** | Charge percentage never reports above 96 % |
 | 2 | **No palm rejection** | Palm/hand contact not rejected while using the S Pen — **researched, implemented, flashed, verified working** (see below) |
-| 3 | **Bluetooth keyboard connection issues** | Connection errors/drops; noticeably worse while 2.4 GHz Wi-Fi is in use (likely 2.4 GHz coexistence interference) |
+| 3 | **Bluetooth lag** | Keyboard/audio lag under 2.4 GHz Wi-Fi — **fixed 2026-09-15** (see below) |
 | 4 | **No camera** | Camera does not work (no drivers — see also README "What works") |
 | 5 | **No rotation sensor** | Screen auto-rotation does not work — **fixed 2026-09-15** (see below) |
 
@@ -95,3 +95,38 @@ patches, `monitor-sensor` reports the accelerometer/ALS/compass live (SSC
 compass streaming), and **auto-rotate was user-verified on the tablet**
 (live orientation `left-up → normal → right-up` while physically rotating).
 Mount-matrix quirk from the same udev file maps landscape to `normal`.
+
+## Bluetooth 2.4 GHz coexistence (issue 3, 2026-09-15)
+
+**Symptom:** with Wi-Fi connected on 2.4 GHz, playing audio over a BT
+headset made *every* connected BT device lag; the BT keyboard also lagged
+occasionally without audio. Never happened on Android.
+
+**Root cause:** the WCN6855 chip (`QCA6490`, 4-wire UART, firmware
+`BTFW.HSP.2.1.0-00660`) shares the 2.4 GHz radio between Wi-Fi and BT.
+The port's BT stack was otherwise healthy (4-wire flow control muxed on
+pins 76-79, correct driver), but the **linux-firmware BT NVM/rampatch is
+not tuned for this device's 2.4 GHz coexistence**.  Android runs Samsung's
+own device blobs, which is why it never lagged on the same 2.4 GHz band.
+
+A/B proof: with Wi-Fi radio off the lag disappeared entirely; with Wi-Fi
+on and the **Samsung** BT firmware the lag was gone too.
+
+**Fix (shipped in the rootfs build):** replace the linux-firmware BT blobs
+with Samsung's device ones (extracted read-only from the stock `/vendor`
+erofs in `super` via `lpunpack` + `erofs-utils`):
+
+| file in `/usr/lib/firmware/qca/` | content | effect |
+|---|---|---|
+| `wcnhpnv21g.bin.xz` | Samsung `hpnv21g.bin` NVM (device-tuned power/coex params) | controller now reports `BTFW.HSP_C.2.1.1.c2-00100-PATCHZ-1` |
+| `wcnhpbtfw21.tlv.xz` | Samsung `hpbtfw21.tlv` rampatch | same build family as stock |
+
+`rootfs/fetch-local-assets.sh` stages these into
+`local-assets/firmware-overrides/usr/lib/firmware/qca/` (only when the
+reference device differs from stock), and `rootfs/build-rootfs.sh` applies
+`firmware-overrides/` onto the rootfs last so it wins over the
+linux-firmware RPM and the firmware payload.  Linux-firmware originals are
+kept on the reference device as `*.linuxfw.bak` for rollback.
+
+**User-verified:** with Wi-Fi on (2.4 GHz ch1), headset + keyboard active,
+audio and input lag free after the swap.

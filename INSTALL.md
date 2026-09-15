@@ -25,7 +25,10 @@ partitions and recovery are never touched by anything here.
    yourself; the released rootfs and the firmware asset on the kernel
    release already contain everything. The blobs are extracted from the
    tablet's own stock partitions (apnhlos, dsp, persist); without them
-   Wi-Fi, BT, audio and the ADSP stay dead.
+   Wi-Fi, BT, audio and the ADSP stay dead. The payload also carries
+   Samsung's device-tuned WCN6855 BT NVM/rampatch (via
+   `rootfs/fetch-local-assets.sh` → `firmware-overrides/`), which keeps the
+   BT keyboard/audio lag-free under 2.4 GHz Wi-Fi (KNOWN-ISSUES.md #3).
 
 ## 1. Get or build the rootfs
 

@@ -78,6 +78,36 @@ device — persist needs a permanent RW mount and super/vendor need live mapping
 `make-dynpart-mappings` has no Fedora equivalent yet (small tool; worst case: port it,
 or replicate the devicekit approach).
 
+### One-off blob extraction from stock `super`/`vendor` (proven, read-only)
+
+Used 2026-09-15 to pull Samsung's device-tuned WCN6855 BT blobs without the
+dynamic-partition mappings.  On the running Fedora tablet (`/dev/sda25` is the
+Android `super`, GPT GUID sda25):
+
+    pip3 install --break-system-packages liblp        # Python Android lp unpack
+    # list partitions (slot index 1 = active):
+    lpdump(ReadMetadata("/dev/sda25", 1)) → system, odm, product, vendor, ...
+    # stream just the vendor partition out of the LP extents:
+    #   for each extent: src.seek(extent.target_data * 512); copy extent.num_sectors*512
+    #   (index into md.extents from part.first_extent_index, num_extents each)
+    dnf install -y erofs-utils
+    fsck.erofs --extract=vendor-root vendor.img     # vendor is erofs, superblock @1024
+
+BT firmware of interest lives at `vendor/firmware/`:
+
+- `hpbtfw21.tlv` (rampatch) + `hpnv21g.bin` / `hpnv21g.{b9a,b9b,baa,bb7,bb9}`
+  (NVM variants; `bt_nvm_loading.xml` documents their tuning, incl. the A2DP/
+  xSCO/LE-audio min-TX-power Tag205) — these replace the linux-firmware
+  `wcnhpbtfw21.tlv.xz` / `wcnhpnv21g.bin.xz` for the 2.4 GHz coexist fix
+  (KNOWN-ISSUES.md #3).
+- `qca6490/amss20.bin`, `m3.bin` — Samsung WLAN firmware (vs linux-firmware's).
+- `qca6490/bdwlan*.elf*` are **small** (60 KB) metadata stubs, not the ath11k
+  BDF; the actual WCN6855 board data for ath11k is not shipped in vendor (the
+  earlier ~7.2 MB Samsung `board-2.bin` was synthesised, see docs/WIFI.md).
+
+Stock firmware reference: `SAMFW.COM_SM-X710_TUR_X710XXS5CYG1_fac.zip`
+(local `~/Downloads/`).
+
 ## Kernel (converts to RPM)
 
 Source of truth: `pmaports/device/testing/linux-samsung-gts9wifi-mainline/`.
