@@ -11,7 +11,7 @@
 | 4 | **No camera** | Camera does not work (no drivers — see also README "What works") |
 | 5 | **No rotation sensor** | Screen auto-rotation does not work — **fixed 2026-09-15** (see below) |
 | 6 | **USB debug link flaky** | The RNDIS USB gadget stops answering the host's bind handshake after session/suspend churn and won't rebind until replug — **fixed 2026-09-15** (see below) |
-| 7 | **Weak 5 GHz Wi-Fi RX** | 5 GHz connects but RX is ~50 dB below physics (-89 dBm vs 2.4 GHz -28 dBm at the same spot; 5 GHz TX is healthy at 351 MBit/s VHT-80 NSS2). Verified on every loadable firmware+BDF combination (all 8 Samsung board.bin variants, the generic board-2 matched entry, LITE and IOE families). Samsung BDFs/firmware that might carry the device's 5 GHz RX calibration cannot be loaded on mainline (both crash ath11k). **Researched 2026-09-15 — see below and WIFI.md** |
+| 7 | **Weak 5 GHz Wi-Fi RX** | 5 GHz connects but RX is ~50 dB below physics (-89 dBm vs 2.4 GHz -28 dBm at the same spot; 5 GHz TX is healthy at 351 MBit/s VHT-80 NSS2). Verified on every loadable firmware+BDF combination (all 8 Samsung board.bin variants, the generic board-2 matched entry, LITE and IOE families). Samsung BDFs/firmware that might carry the device's 5 GHz RX calibration cannot be loaded on mainline (both crash ath11k). **Hardware ruled out 2026-09-15 via Android A/B test (5 GHz strong on stock Android at the same spot) — the deficit is a firmware/software RX-tuning mismatch, not a hardware fault. See below and WIFI.md** |
 
 ## Palm rejection research (issue 2, 2026-09-14)
 
@@ -189,7 +189,29 @@ range: -72…-85 dBm vs -23 dBm on 2.4 GHz).
 5 GHz RX calibration. Every bootable combination shows the same weak 5 GHz RX.
 The 2.4 GHz band and 5 GHz TX are healthy, so the radio/antenna chain itself
 works — the exact RX-path parameter lives in data that cannot be loaded.
-Android-side 5 GHz check at the same position is still pending (Android rootfs
-not currently loaded) to firmly classify as hardware vs firmware-tuning.
 
-**Status:** investigated 2026-09-15; documented, no fix available on mainline.
+**Internet research (2026-09-15, full write-up in docs/WIFI.md):** the
+symptom signature (weak 5 GHz RX, near-field OK, 2.4 GHz fine) matches the
+well-known **BDF template-version / mismatched-board-file** failure mode
+("weak signal, bad noise values; 5G clients only connect from ~20 cm").
+The tablet loads a *generic reference-design* BDF (`subsystem-device=0108`,
+`qmi-board-id=255` — Qualcomm reference ID, no variant), not a Samsung-tuned
+one; Samsung's own BDFs are an older template the IOE firmware rejects. Since
+`variant` cannot be used on WCN6855 M.2 boards, most such devices run the
+generic BDF. **Promising, untested fix path:** *BDF substitution* — remap a
+different vendor's compatible board file (e.g. the HP_G8_Lancia14 data used
+for HP Omnibook hw2.1) into our slot via `ath11k-bdencoder` and measure 5 GHz
+RX; precedents for this working exist on the ath11k list.
+
+**Android A/B test (2026-09-15) — hardware ruled out:** stock Samsung Android
+was booted at the same position (Linux backed up; boot chain re-flashed; then
+fully restored, md5-verified). 5 GHz was **strong on Android** at both the
+2–3 m and near-field spots. Same radio + antennas + position ⇒ the 5 GHz
+receive chain is healthy; the ~50 dB RX deficit is introduced by the Linux
+(ath11k + IOE firmware + generic BDF) combination — a firmware/software RX
+tuning mismatch, not a hardware fault. Prime suspect: the generic BDF / IOE
+firmware pair missing the device-specific 5 GHz RX gain/antenna config, or an
+ath11k RX-path quirk on hw2.1.
+
+**Status:** investigated + hardware ruled out 2026-09-15 (Android A/B);
+documented, no fix available on mainline.

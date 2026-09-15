@@ -149,11 +149,31 @@ families). Near-field test (~5 cm from the AP): 5 GHz -72…-85 dBm vs 2.4 GHz
    join — and it also shows the same weak RX.
 
 So on mainline the injectable board data is fixed to the generic BDF, and it
-yields the same 5 GHz RX weakness. Combined with strong 5 GHz TX, the most
-likely remaining causes are a hardware 5 GHz RX-path issue on the unit or a
-firmware RX tuning quirk outside the BDF's control. To be settled definitively,
-re-check the 5 GHz signal bars/speed on **Android** at the same spot (not yet
-done — Android rootfs not currently loaded on the unit).
+yields the same 5 GHz RX weakness.
+
+## Android A/B test — hardware ruled out (settled 2026-09-15)
+
+To settle hardware-vs-firmware, stock Samsung Android was booted briefly at the
+same position (TWRP present as `recovery`; Linux rootfs backed up first; stock
+boot/init_boot/vendor_boot/dtbo re-flashed; then restored). Result:
+
+- **5 GHz is strong on Android at the same 2–3 m and near-field spots** — no
+  50 dB receive deficit, normal signal/speed.
+- Same radio hardware, same antennas, same position → the 5 GHz receive chain
+  is **not** defective; the ~50 dB RX deficit is introduced by the Linux
+  (ath11k + IOE firmware + generic BDF) combination.
+
+**Conclusion: the weak-RX is a firmware/software RX-tuning mismatch, not a
+hardware fault.** The likely culprit is the generic linux-firmware BDF / IOE
+firmware pair lacking the device-specific RX gain/calibration parameters (see
+also the research links in KNOWN-ISSUES.md #7), or an ath11k RX path issue
+(e.g. RX LDPC/stbc, antenna diversity, or a quirk in the hw2.1 reg). The 5 GHz
+TX path being healthy (351 MBit/s) while RX collapses is consistent with a BDF
+RX-gain/antenna-config entry rather than a PCB fault.
+
+The experiment was fully reverted: Linux rootfs (ext4, UUID
+`d2a235a8-37cd-4bac-be53-16caf2bfdd21`), boot chain, and TWRP restored and
+md5-verified; Wi-Fi back on 2.4 GHz ch1 at -40 dBm.
 
 ### Verified end-state (persisted)
 
@@ -163,6 +183,74 @@ done — Android rootfs not currently loaded on the unit).
   for fallback)
 - Wi-Fi 2.4 GHz healthy; 5 GHz weak-RX limitation documented in
   [KNOWN-ISSUES.md](KNOWN-ISSUES.md) #7.
+
+## Internet research — why 5 GHz RX is weak (2026-09-15)
+
+Internet research on the ~50 dB receive deficit. Sources: linux-wireless /
+linux-kernel lists, the ath11k mailing list, OpenWrt board-data
+(qca-swiss-army-knife) threads, the kernel "calibration" docs, and vendor
+Wi-Fi bug repos.
+
+### How board data (BDF) works
+
+- `board-2.bin` holds *board files* keyed by
+  `bus=pci,vendor=17cb,device=1103,subsystem-vendor=…,subsystem-device=…,qmi-chip-id=…,qmi-board-id=…[,variant=…]`.
+  A board file is product-specific calibration (RX/TX gain tables, spur
+  info, power table) that the firmware combines with the chip's OTP
+  calibration. "Choosing the correct board file is essential as otherwise
+  the performance can be bad or the device doesn't work at all" (Kalle Valo,
+  linux-kernel).
+- `qmi-board-id=255` is the **generic/unprogrammed** marker (no valid OTP
+  board id). Our tablet also reports `subsystem-device=0108`, **Qualcomm's own
+  reference ID** — i.e. the loaded 60,036 B payload
+  (`bus=pci,vendor=17cb,device=1103,subsystem-vendor=17cb,subsystem-device=0108,qmi-chip-id=2,qmi-board-id=255`)
+  is a *reference-design* board file, not a per-device one.
+- The `variant` mechanism (SMBIOS on x86, `qcom,ath11k-calibration-variant`
+  in DT) exists precisely because the firmware-visible IDs are often not
+  unique enough — but **WCN6855 M.2 boards cannot use the DT variant**, so
+  many WCN6855 devices run the generic reference BDF (Kalle Valo, 2024-09
+  dt-bindings thread). This matches our situation: no variant, generic BDF.
+
+### Why that explains OUR symptom signature
+
+- OpenWrt / board-data threads describe the classic **BDF template-version
+  mismatch** between an old/mismatched board file and newer firmware as:
+  *weak signal, bad noise values*, and specifically *"broken 5G radio RX —
+  clients can only connect from ~20 cm away"* while 2.4 GHz works. That is
+  exactly our measured behaviour (near-field OK-ish, far-field dead, 2.4 GHz
+  fine).
+- A reference-design RX-gain table simply need not be sensitive enough for
+  this tablet's 5 GHz antenna layout (while 2.4 GHz tables are less
+  divergent). 5 GHz **TX** being healthy (351 MBit/s) and **RX** collapsing is
+  consistent with the deficit living in the BDF RX gain / antenna-mapping
+  parameters, not the power table and not the chassis.
+- Samsung's board files are the device-tuned data that would fix the RX
+  parameters — but they are a **different, older BDF template** than the
+  mainline IOE firmware family expects, which is very likely *why* they crash
+  the IOE firmware (`failed to load board data file: -2` + RDDM). It's the
+  same template-mismatch phenomenon, seen from the other side.
+
+### Practical lead to test — BDF substitution works
+
+Two public examples prove a *foreign* board file can be substituted into a
+different device's slot and loads cleanly:
+
+- **HP Omnibook X 14 (WCN6855 hw2.1)** — contributor saw the board could not
+  be uniquely identified and **re-used the HP_G8_Lancia14 board file as an
+  "educated guess"**, mapping it into the device's own board-2.bin slot;
+  reported "works well" (ath11k list, 2024-12).
+- **ASUS QCNFA765 repo** — remaps a missing subsystem ID in `board-2.bin` to
+  a compatible borrowed config (`e105 / board-id 268`) so Wi-Fi loads at all.
+
+**Proposed experiment (not yet done):** extract linux-firmware's WCN6855
+hw2.1 `board-2.bin`, pick a *different* vendor's board file for the same
+`device=1103, chip-id=2` family (e.g. the HP_G8_Lancia14 / board-id 268 mass
+used by the HP submissions, or Qualcomm's own board files for other
+subsystem-device IDs), remap its data into our
+`subsystem-device=0108, qmi-board-id=255` slot with `ath11k-bdencoder`, flash,
+and measure 5 GHz RSSI. A meaningful **RX-gain** change would confirm the
+generic-BDF RX-parameter hypothesis and give us a tuning knob; no change keeps
+the generic reference BDF as the best-known data.
 
 ## Kernel source landmarks
 
