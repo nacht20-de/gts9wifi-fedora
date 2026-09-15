@@ -31,7 +31,7 @@ the same root UUID; never boot with both inserted.
 | GPU (Adreno 740) | ✅ Samsung-signed zap/GMU firmware, in the initramfs |
 | Hardware video decode (iris) | ❌ Samsung-signed vpu30_4v.mbn not yet sourced |
 | Power/volume keys, book-cover lid, suspend (s2idle) | ✅ |
-| Sensors (SSC: accelerometer, rotation vector, ambient light) | ⚠️ SSC fully alive; ambient light serves over D-Bus; screen auto-rotate pending an upstream iio-sensor-proxy/libssc fix |
+| Sensors (SSC: accelerometer, rotation vector, ambient light) | ✅ SSC alive; ambient light + compass serve over D-Bus; screen auto-rotate **works** (patched iio-sensor-proxy, see KNOWN-ISSUES.md) |
 | Camera | ❌ no drivers |
 | /vendor super partition (erofs) | ❌ needs make-dynpart-mappings port |
 | SELinux | permissive |

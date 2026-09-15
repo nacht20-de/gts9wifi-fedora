@@ -167,12 +167,13 @@ chroot "$rootfs" rpm -e --nodeps iio-sensor-proxy || true
 
 echo ">>> Building iio-sensor-proxy 3.9 with libssc support"
 # Fedora's own build may not link libssc; build it exactly like the pmOS port
-# (libssc + notify-slow-sensor-discovery patch).
+# (libssc + notify-slow-sensor-discovery + start-polling-claimed-while-starting).
 ispdir="$(mktemp -d)"
 curl -sfL "https://gitlab.freedesktop.org/hadess/iio-sensor-proxy/-/archive/3.9/iio-sensor-proxy-3.9.tar.gz" \
     | tar xz -C "$ispdir" --strip-components=1
-patch -d "$ispdir" -p1 \
-    < "$repo_dir"/specs/iio-sensor-proxy-libssc/patches/notify-slow-sensor-discovery.patch
+for p in "$repo_dir"/specs/iio-sensor-proxy-libssc/patches/*.patch; do
+    patch -d "$ispdir" -p1 < "$p"
+done
 meson setup "$ispdir/build" "$ispdir" -Dprefix=/usr -Dssc-support=enabled
 meson compile -C "$ispdir/build"
 DESTDIR="$ispdir/staging" meson install --no-rebuild -C "$ispdir/build"

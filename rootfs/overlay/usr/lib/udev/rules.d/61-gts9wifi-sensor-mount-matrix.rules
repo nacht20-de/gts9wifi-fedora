@@ -6,3 +6,9 @@
 # Apply the board rotation in iio-sensor-proxy's second mount-matrix stage:
 # physical landscape previously arrived as "left-up"; this maps it to "normal".
 SUBSYSTEM=="misc", KERNEL=="fastrpc-adsp", ENV{ACCEL_MOUNT_MATRIX}="0,1,0;-1,0,0;0,0,1"
+
+# The upstream 80-iio-sensor-proxy.rules only tags the FastRPC device with
+# "ssc-light ssc-compass".  Without the "ssc-accel" tag iio-sensor-proxy never
+# looks up the accelerometer on the ADSP, so HasAccelerometer stays false.
+# This file sorts before 80-; both append.
+SUBSYSTEM=="misc", KERNEL=="fastrpc-adsp", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel"

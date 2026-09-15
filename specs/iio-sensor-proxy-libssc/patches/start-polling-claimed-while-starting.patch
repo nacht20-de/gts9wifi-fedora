@@ -1,0 +1,36 @@
+SSC discovery can outlive the first D-Bus claim for the accelerometer.
+Clients (mutter/gnome-shell) claim the accelerometer as soon as the
+proxy owns its bus name, but the ADSP-backed SSC accel only gets
+registered tens of milliseconds later (registry poll + SUID + attribute
+round-trips).  At that point handle_generic_method_call() has already
+returned the claim with driver_type_exists() FALSE, and no later client
+gets polling started either: subsequent claims hit the
+"already claimed, no-op" path, and the "appeared while claimed" poll
+start only exists in the udev-add hotplug path, which never fires for an
+already-present device.
+
+The accel therefore reported HasAccelerometer=true but never delivered a
+single measurement, so auto-rotate did nothing.
+
+Start polling any sensor type that was claimed while the proxy was still
+rigging itself up, right after its SensorDevice is opened.
+
+diff --git a/src/iio-sensor-proxy.c b/src/iio-sensor-proxy.c
+index 2da80bb..a70f9c1 100644
+--- a/src/iio-sensor-proxy.c
++++ b/src/iio-sensor-proxy.c
+@@ -777,6 +777,14 @@ name_acquired_handler (GDBusConnection *connection,
+ 		}
+ 
+ 		DEVICE_FOR_TYPE(i) = sensor_device;
++
++		/* A sensor type that was claimed while we were still setting up
++		 * (e.g. the SSC accelerometer, whose discovery on the ADSP takes
++		 * a while, is often claimed by a client before it is registered).
++		 * Start polling right now, otherwise the claim is lost and the
++		 * sensor never delivers measurements. */
++		if (g_hash_table_size (data->clients[i]) > 0)
++			driver_set_polling (sensor_device, TRUE);
+ 	}
+ 
+ 	if (!any_sensors_left (data))

@@ -9,7 +9,7 @@
 | 2 | **No palm rejection** | Palm/hand contact not rejected while using the S Pen — **researched, implemented, flashed, verified working** (see below) |
 | 3 | **Bluetooth keyboard connection issues** | Connection errors/drops; noticeably worse while 2.4 GHz Wi-Fi is in use (likely 2.4 GHz coexistence interference) |
 | 4 | **No camera** | Camera does not work (no drivers — see also README "What works") |
-| 5 | **No rotation sensor** | Screen auto-rotation does not work |
+| 5 | **No rotation sensor** | Screen auto-rotation does not work — **fixed 2026-09-15** (see below) |
 
 ## Palm rejection research (issue 2, 2026-09-14)
 
@@ -62,10 +62,36 @@ coordinate handling.
 - **User-verified: palm rejection works** (finger touches suppressed while the
   pen is in range; FTS_TYPE_PALM contacts dropped).
 
-## Relevant context already known
+## Rotation sensor research (issue 5, 2026-09-15)
 
-- Rotation is related to the SSC sensor stack (accelerometer/rotation vector
-  live; see README entry and the pending
-  iio-sensor-proxy/libssc fix).
-- Camera has no drivers on mainline (README "What works").
-- Bluetooth+2.4 GHz coexistence is a common WCN6855-class issue.
+**Root cause (two independent problems, both fixed):**
+
+1. **Missing udev tag.** Upstream
+   `/usr/lib/udev/rules.d/80-iio-sensor-proxy.rules` tags the FastRPC misc
+   device `fastrpc-adsp` only `IIO_SENSOR_PROXY_TYPE+="ssc-light ssc-compass"`,
+   so `drv-ssc-accel.c` never looks the accelerometer up on the ADSP and
+   `HasAccelerometer` stays false.
+2. **Claim race in iio-sensor-proxy 3.9.** GNOME (mutter) claims the
+   accelerometer within ~15 ms of the proxy owning its D-Bus name —
+   `net.hadess.SensorProxy` — but SSC accel discovery takes ~50 ms (registry
+   poll + SUID + attribute round-trips). The claim is recorded, polling never
+   starts, and the "appeared while already claimed" poll-start only exists in
+   the udev-add hotplug path, which never fires for an already-present device.
+   The accel therefore reported available but never delivered a measurement.
+
+**Fix (shipped in the rootfs build + in `specs/`):**
+
+- `rootfs/overlay/usr/lib/udev/rules.d/61-gts9wifi-sensor-mount-matrix.rules`
+  now appends the `ssc-accel` tag to the FastRPC device (this file sorts
+  before `80-iio-sensor-proxy.rules`; both use `+=`).
+- `specs/iio-sensor-proxy-libssc/patches/start-polling-claimed-while-starting.patch`
+  starts polling any sensor type claimed while the proxy was still setting up
+  (right after its `SensorDevice` is opened), so a claim made during discovery
+  is honoured instead of lost. Applied together with the existing
+  `notify-slow-sensor-discovery.patch` in `rootfs/build-rootfs.sh`.
+
+**Verification:** after a clean rebuild from the pristine 3.9 tarball + both
+patches, `monitor-sensor` reports the accelerometer/ALS/compass live (SSC
+compass streaming), and **auto-rotate was user-verified on the tablet**
+(live orientation `left-up → normal → right-up` while physically rotating).
+Mount-matrix quirk from the same udev file maps landscape to `normal`.
