@@ -14,9 +14,10 @@ Captured September 2026, tablet running kernel
 |---|---|
 | Wi-Fi/BT SoC | Qualcomm WCN6855 (dual chip, reports `QCA6490`) |
 | ath11k | `ath11k_pci`, hw_params reports **hw2.1** |
-| Firmware `amss.bin` | md5 `9f8dd9ecbc75e5041570dacf48f98874` — **identical** between Samsung's build (Jul 18) and linux-firmware (Aug 11) — stock Qualcomm, NOT Samsung-custom |
-| Board data (BDF) | `/lib/firmware/ath11k/WCN6855/hw2.1/board-2.bin` |
-| Regulatory data | `regdb.bin` (24310 bytes) + embedded regdb IE in board-2.bin (`bus=pci` fallback) |
+| Firmware `amss.bin` | md5 `e38e434e815db0a1f041bc72212d9c94` — **IOE 04866.5** (`WLAN.HSP.1.1-04866.5-...-IOE-1`, `fw_version 0x11021302`), the mainline-friendly family that actually runs. Samsung's own non-LITE `amss20` image (`fd079535`) crashes ath11k with `MHI_CB_EE_RDDM`. |
+| M3 `m3.bin` | md5 `75f724599b259283466e11d5adb0c3f2` — IOE family, pairs with the IOE amss |
+| Board data (BDF) | `/lib/firmware/ath11k/WCN6855/hw2.1/board-2.bin` (md5 `df8157b9a251ac6c662b91df94a45438`, linux-firmware). **This is what actually gets loaded** — it has an exact `subsystem-device=0108` ABI entry for this tablet, so it overrides `board.bin` entirely. |
+| Regulatory data | `regdb.bin` (24310 bytes, md5 `f67be83659c790fe15d1e42af501e9fa`, linux-firmware) + embedded regdb IE in board-2.bin (`bus=pci` fallback) |
 | Regulatory mode | wiphy is **self-managed** (`phy#0 (self-managed)` in `iw reg get`) — the **firmware** decides channel flags, not cfg80211 |
 
 ### Board-data sources tried
@@ -24,7 +25,23 @@ Captured September 2026, tablet running kernel
 | Source | board-2.bin md5 | Notes |
 |---|---|---|
 | Samsung (stock, backed up) | (original in `/lib/firmware/ath11k/samsung-backup-hw21/`) | has the per-device RF calibration entry for subsystem `17cb:0108`; ~7.2 MB |
-| linux-firmware (currently installed) | `df8157b9a251ac6c662b91df94a45438` | generic WCN6855 BDF; 58180-byte `board.bin` for fallback |
+| linux-firmware (currently installed) | `df8157b9a251ac6c662b91df94a45438` | generic WCN6855 BDF; matched entry payload is 60,036 B (md5 `0e92fa42`), distinct from every Samsung payload (58,180 B) |
+
+The 8 Samsung BDF variants (`bdwlan{,.elf1,.elf2,.elf10}`, `bdwlang{,.elf1,.elf2,.elf10}`)
+were each tested both swapped into `board.bin` **and** injected as the matched
+payload inside a custom board-2.bin. Summary of what this established:
+
+- **`board.bin` swaps are a no-op in practice.** board-2.bin has an exact ABI
+  match (`bus=pci,vendor=17cb,device=1103,subsystem-vendor=17cb,subsystem-device=0108,qmi-chip-id=18,qmi-board-id=255`)
+  so the matched entry (generic 60,036 B) is loaded and `board.bin` ignored.
+  All 8 `board.bin` swaps therefore produced identical Wi-Fi behavior.
+- **Samsung BDF data crashes the mainline IOE firmware.** Injecting a Samsung
+  BDF (e.g. `bdwlang`, 58,180 B) as the matched payload in a custom board-2.bin
+  makes ath11k fail with `failed to load board data file: -2` followed by a
+  firmware RDDM (`MHI_CB_EE_RDDM`) and Wi-Fi down. A custom board-2.bin
+  carrying the **generic** payload (verified md5 `0e92fa42`) boots Wi-Fi
+  perfectly — proving the custom container format is valid and the Samsung
+  BDF *content* is what the IOE firmware rejects.
 
 All regdb blobs inspected (file `regdb.bin`, Samsung's board-2.bin REGDB IE,
 linux-firmware's) are the **standard Qualcomm regulatory database** (first
@@ -103,29 +120,49 @@ Test recipe (SSID of the test home router, not generic):
 Note: `dhclient` is NOT installed in the rootfs; NetworkManager
 handles addressing. Restore it after testing: `systemctl start NetworkManager`.
 
-## ⚠️ Current state at time of writing: connects, but no signal/data
+## ⚠️ Final state: 5 GHz RX is weak on every combination tried
 
-After all fixes, the tablet **associates** on ch36 (`wpa_state=COMPLETED`)
-but is effectively unusable — the link sits at **-87…-90 dBm** while the
-same router's 2.4 GHz radio shows **-27 dBm**. ~60 dB asymmetry across two
-radios of the same AP strongly suggests the 5 GHz RF path is not properly
-calibrated/tuned, not a range issue.
+The tablet **associates** on ch36 (`wpa_state=COMPLETED`) and TX is healthy,
+but RX is ~50 dB below physics:
 
-Primary suspect: the installed **linux-firmware generic board-2.bin**
-(lacks the per-device `17cb:0108` RF calibration that Samsung's BDF carries),
-or the 5 GHz power-amplifier/LNA settings inside it.
+| Band | RSSI | RX bitrate | TX bitrate |
+|---|---|---|---|
+| 2.4 GHz (ch1) | **-28 dBm** | 52 MBit/s MCS5 | 39 MBit/s MCS10 |
+| 5 GHz (ch36) | **-89 dBm** | 13.5 MBit/s VHT-MCS0 40MHz NSS1 | **351 MBit/s VHT-MCS4 80MHz NSS2** |
 
-### Next steps (not yet done)
+Same position, same router. 5 GHz TX reaches full VHT-80 NSS2 speed while RX
+sits at VHT-MCS0 — a **receive-path-only deficit**, reproducible at every
+BDF/firmware combination that boots at all (all 8 Samsung `board.bin`
+variants, the generic board-2 matched entry, and both LITE and IOE firmware
+families). Near-field test (~5 cm from the AP): 5 GHz -72…-85 dBm vs 2.4 GHz
+-23 dBm → ~50 dB gap persists with no path loss involved.
 
-1. **Restore Samsung's original board-2.bin** from
-   `/lib/firmware/ath11k/samsung-backup-hw21/` and re-run the WPA2 ch36 test
-   above. The kernel NO_IR strip should keep channels active even if the
-   firmware still emits no-IR for 5 GHz.
-2. If still weak, compare `iw phy phy0` channel TX power / supported
-   bandwidths between the two BDFs; check the RF parameter fields
-   (tx power limits, per-channel power) in both board-2.bin images.
-3. Correlate with a known-good 5 GHz RSSI: walk the tablet near the AP and
-   watch `wpa_cli signal_poll`.
+### Why the Samsung BDF can't rescue it (checked exhaustively)
+
+1. **Samsung's non-LITE `amss20` firmware** crashes mainline ath11k with
+   `MHI_CB_EE_RDDM` — Samsung firmware family is unusable.
+2. **Samsung BDF data injected into board-2.bin** crashes the mainline IOE
+   firmware (`failed to load board data file: -2` + RDDM). A control test with
+   the same custom container carrying the generic payload boots fine, so the
+   Samsung *content* is incompatible — it cannot be loaded at all.
+3. The only loadable 5 GHz-configuring data is the **generic** 60,036 B board
+   join — and it also shows the same weak RX.
+
+So on mainline the injectable board data is fixed to the generic BDF, and it
+yields the same 5 GHz RX weakness. Combined with strong 5 GHz TX, the most
+likely remaining causes are a hardware 5 GHz RX-path issue on the unit or a
+firmware RX tuning quirk outside the BDF's control. To be settled definitively,
+re-check the 5 GHz signal bars/speed on **Android** at the same spot (not yet
+done — Android rootfs not currently loaded on the unit).
+
+### Verified end-state (persisted)
+
+- `amss.bin` = IOE 04866.5 (`e38e434e`) · `m3.bin` = IOE (`75f72459`)
+- `regdb.bin` = linux-firmware (`f67be836`) · `board-2.bin` = linux-firmware
+  generic (`df8157b9`) · `board.bin` = Samsung `e10` (`137e9438`, ignored, kept
+  for fallback)
+- Wi-Fi 2.4 GHz healthy; 5 GHz weak-RX limitation documented in
+  [KNOWN-ISSUES.md](KNOWN-ISSUES.md) #7.
 
 ## Kernel source landmarks
 

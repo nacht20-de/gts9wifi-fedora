@@ -11,6 +11,7 @@
 | 4 | **No camera** | Camera does not work (no drivers — see also README "What works") |
 | 5 | **No rotation sensor** | Screen auto-rotation does not work — **fixed 2026-09-15** (see below) |
 | 6 | **USB debug link flaky** | The RNDIS USB gadget stops answering the host's bind handshake after session/suspend churn and won't rebind until replug — **fixed 2026-09-15** (see below) |
+| 7 | **Weak 5 GHz Wi-Fi RX** | 5 GHz connects but RX is ~50 dB below physics (-89 dBm vs 2.4 GHz -28 dBm at the same spot; 5 GHz TX is healthy at 351 MBit/s VHT-80 NSS2). Verified on every loadable firmware+BDF combination (all 8 Samsung board.bin variants, the generic board-2 matched entry, LITE and IOE families). Samsung BDFs/firmware that might carry the device's 5 GHz RX calibration cannot be loaded on mainline (both crash ath11k). **Researched 2026-09-15 — see below and WIFI.md** |
 
 ## Palm rejection research (issue 2, 2026-09-14)
 
@@ -162,3 +163,33 @@ device as `gts9wifi-usb-gadget.rndis.bak`.
 **User-verified:** SSH over `172.16.42.1` via `cdc_ether` works (~0.4 ms), a
 fresh ECM re-enumeration binds immediately, and the conversion persists across
 a reboot.
+
+## Weak 5 GHz Wi-Fi RX (issue 7, 2026-09-15)
+
+**Symptom:** 5 GHz associates (`wpa_state=COMPLETED`) but the link is
+effectively unusable: RX sits at **-89 dBm / 13.5 MBit/s (VHT-MCS0 40MHz
+NSS1)** while 2.4 GHz on the same router shows **-28 dBm / 52 MBit/s**. 5 GHz
+**TX** is fine (**351 MBit/s VHT-MCS4 80MHz NSS2**), so the deficit is a pure
+receive-path weakness (~50 dB below free-space prediction, confirmed at ~5 cm
+range: -72…-85 dBm vs -23 dBm on 2.4 GHz).
+
+**Exhaustive search (docs/WIFI.md has the full detail):**
+
+- All 8 Samsung BDF variants (`bdwlan/…bdwlang`) tested as `board.bin` →
+  no effect, because **board-2.bin's exact ABI match**
+  (`subsystem-device=0108`) always wins and loads the *generic* 60,036 B BDF
+  (md5 `0e92fa42`).
+- Samsung BDFs **injected** as the matched payload in a custom board-2.bin →
+  firmware crash (`failed to load board data file: -2` + `MHI_CB_EE_RDDM`).
+  Control: same custom container + generic payload boots fine → the Samsung
+  BDF *content* is incompatible with the mainline IOE firmware.
+- Samsung's non-LITE `amss20` firmware family also crashes mainline ath11k.
+
+**Conclusion:** on mainline Linux there is no way to feed the device-specific
+5 GHz RX calibration. Every bootable combination shows the same weak 5 GHz RX.
+The 2.4 GHz band and 5 GHz TX are healthy, so the radio/antenna chain itself
+works — the exact RX-path parameter lives in data that cannot be loaded.
+Android-side 5 GHz check at the same position is still pending (Android rootfs
+not currently loaded) to firmly classify as hardware vs firmware-tuning.
+
+**Status:** investigated 2026-09-15; documented, no fix available on mainline.
