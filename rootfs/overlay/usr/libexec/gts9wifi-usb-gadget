@@ -1,32 +1,43 @@
 #!/bin/sh
-# Create the RNDIS USB gadget and configure the debug address.
-# With no initramfs on this port the gadget has to be set up from the real
-# root; the pmOS initramfs used to do this before switch_root.
+# Ensure the debug USB gadget uses ECM (cdc_ether) and configure the address.
+# The initramfs pre-creates an RNDIS gadget; its control plane stops answering
+# the host bind handshake after sustained sessions/suspend cycles, so always
+# convert to ECM for a reliable, auto-bindable debug link.
 set -u
 
 G=/sys/kernel/config/usb_gadget/g1
 
 modprobe configfs 2>/dev/null
 modprobe libcomposite 2>/dev/null
-modprobe usb_f_rndis 2>/dev/null
+modprobe usb_f_ecm 2>/dev/null
 
 [ -d /sys/kernel/config/usb_gadget ] || mount -t configfs configfs /sys/kernel/config 2>/dev/null
 [ -d /sys/kernel/config/usb_gadget ] || exit 0
 
 if [ ! -d "$G" ]; then
-    mkdir -p "$G/functions/rndis.usb0" \
-             "$G/configs/b.1/strings/0x409" \
-             "$G/strings/0x409" || exit 0
+    mkdir -p "$G/strings/0x409" "$G/configs/b.1/strings/0x409" || exit 0
     echo "fedora-gts9wifi" > "$G/strings/0x409/serialnumber" 2>/dev/null
-    ln -sf "$G/functions/rndis.usb0" "$G/configs/b.1" 2>/dev/null
 fi
+
+# Unlink the UDC so the configuration can be mutated safely.
+U=$(cat "$G/UDC" 2>/dev/null)
+[ -n "$U" ] && echo "" > "$G/UDC" 2>/dev/null
+
+# Drop any RNDIS function left by the initramfs.
+if [ -L "$G/configs/b.1/rndis.usb0" ]; then
+    rm -f "$G/configs/b.1/rndis.usb0"
+fi
+if [ -d "$G/functions/rndis.usb0" ]; then
+    rmdir "$G/functions/rndis.usb0" 2>/dev/null
+fi
+
+# Ensure the ECM function exists and is linked.
+[ -d "$G/functions/ecm.usb0" ] || mkdir "$G/functions/ecm.usb0" 2>/dev/null
+ln -sf "$G/functions/ecm.usb0" "$G/configs/b.1/" 2>/dev/null
 
 UDC=$(ls /sys/class/udc 2>/dev/null | head -1)
-if [ -n "$UDC" ] && [ "$(cat "$G/UDC" 2>/dev/null)" != "$UDC" ]; then
-    echo "$UDC" > "$G/UDC" 2>/dev/null
-fi
+[ -n "$UDC" ] && echo "$UDC" > "$G/UDC" 2>/dev/null
 
-# wait for usb0 to appear, then force the debug address deterministically
 i=0
 while [ $i -lt 30 ] && ! ip link show usb0 >/dev/null 2>&1; do
     sleep 1

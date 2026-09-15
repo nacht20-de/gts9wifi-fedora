@@ -10,6 +10,7 @@
 | 3 | **Bluetooth lag** | Keyboard/audio lag under 2.4 GHz Wi-Fi — **fixed 2026-09-15** (see below) |
 | 4 | **No camera** | Camera does not work (no drivers — see also README "What works") |
 | 5 | **No rotation sensor** | Screen auto-rotation does not work — **fixed 2026-09-15** (see below) |
+| 6 | **USB debug link flaky** | The RNDIS USB gadget stops answering the host's bind handshake after session/suspend churn and won't rebind until replug — **fixed 2026-09-15** (see below) |
 
 ## Palm rejection research (issue 2, 2026-09-14)
 
@@ -130,3 +131,34 @@ kept on the reference device as `*.linuxfw.bak` for rollback.
 
 **User-verified:** with Wi-Fi on (2.4 GHz ch1), headset + keyboard active,
 audio and input lag free after the swap.
+
+## USB debug gadget (issue 6, 2026-09-15)
+
+**Symptom:** the USB-C debug link (host reaching the tablet as a network
+device) works for a while, then the host's `rndis_host` can no longer bind —
+`new_id` / `driver_override` / udev triggers all fail, the interface stays
+`NONE`, and only a physical replug (or reboot) rescues it. TWRP's ADB over the
+same cable always worked, so hardware/cable were fine.
+
+**Root cause:** the boot image's initramfs pre-creates an **RNDIS** gadget
+(`configfs-gadget.g1`, function `rndis.usb0`) before systemd runs. RNDIS
+requires a control-plane OID handshake, and on this board that gadget stops
+answering it after sustained sessions / suspend cycles; the failed bind prints
+a `register`+instant `unregister` in dmesg and no error. Note this is **not
+related to the Bluetooth firmware swap** — RNDIS also bound (but with a dead
+datapath and ARP timeouts) on the very first install, before any BT work.
+
+**Fix (shipped in the rootfs build):** `gts9wifi-usb-gadget` now **converts
+the gadget to ECM** (`usb_f_ecm` / `cdc_ether`) instead of assuming RNDIS: it
+unlinks the UDC, removes any `rndis.usb0` function left by the initramfs,
+links `ecm.usb0`, rebinds the UDC, and forces `172.16.42.1/24` on `usb0`.
+`cdc_ether` is class-matched (02/06/00) with no OID handshake, so the host
+auto-binds as `enx<hostmac>` on enumeration and survives replug/suspend.
+
+Usage from the host: bind is automatic; then `sudo ip addr add 172.16.42.2/24
+dev enx...` and `ssh fedora@172.16.42.1`. Original RNDIS script kept on the
+device as `gts9wifi-usb-gadget.rndis.bak`.
+
+**User-verified:** SSH over `172.16.42.1` via `cdc_ether` works (~0.4 ms), a
+fresh ECM re-enumeration binds immediately, and the conversion persists across
+a reboot.
