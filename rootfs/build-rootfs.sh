@@ -197,7 +197,9 @@ if [ -d "$assets/firmware-overrides" ]; then
     # Replaces the linux-firmware BT blobs with Samsung's device-tuned ones
     # (hpnv21g.bin + hpbtfw21.tlv): without them BT traffic lags under
     # 2.4GHz Wi-Fi activity (see docs/KNOWN-ISSUES.md #3).  May also carry
-    # the WCN6855 IOE 04866.5 amss/m3 that mainline runs best on (see #7).
+    # the WCN6855 IOE 04866.5 amss/m3 that mainline runs best on, plus the
+    # board-2.bin with the LE_X13S payload that restores 5 GHz RX
+    # (2.4GHz/5GHz fixes, see #7 and docs/WIFI.md).
     # Applied last so it wins over both the dnf linux-firmware package and
     # the firmware payload.
     cp -a "$assets/firmware-overrides/." "$rootfs/"

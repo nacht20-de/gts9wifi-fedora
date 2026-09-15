@@ -16,7 +16,7 @@ Captured September 2026, tablet running kernel
 | ath11k | `ath11k_pci`, hw_params reports **hw2.1** |
 | Firmware `amss.bin` | md5 `e38e434e815db0a1f041bc72212d9c94` — **IOE 04866.5** (`WLAN.HSP.1.1-04866.5-...-IOE-1`, `fw_version 0x11021302`), the mainline-friendly family that actually runs. Samsung's own non-LITE `amss20` image (`fd079535`) crashes ath11k with `MHI_CB_EE_RDDM`. |
 | M3 `m3.bin` | md5 `75f724599b259283466e11d5adb0c3f2` — IOE family, pairs with the IOE amss |
-| Board data (BDF) | `/lib/firmware/ath11k/WCN6855/hw2.1/board-2.bin` (md5 `df8157b9a251ac6c662b91df94a45438`, linux-firmware). **This is what actually gets loaded** — it has an exact `subsystem-device=0108` ABI entry for this tablet, so it overrides `board.bin` entirely. |
+| Board data (BDF) | `/lib/firmware/ath11k/WCN6855/hw2.1/board-2.bin` (md5 `872764e409ea2475d33de5c1aea0e2c6` — custom container carrying the **LE_X13S** payload in our exact-ABI slot, the 5 GHz RX fix). Generic linux-firmware original was `df8157b9a251ac6c662b91df94a45438` (backed up at `board-2.bin.generic-bak`). **This is what actually gets loaded** — it has an exact `subsystem-device=0108` ABI entry for this tablet, so it overrides `board.bin` entirely. |
 | Regulatory data | `regdb.bin` (24310 bytes, md5 `f67be83659c790fe15d1e42af501e9fa`, linux-firmware) + embedded regdb IE in board-2.bin (`bus=pci` fallback) |
 | Regulatory mode | wiphy is **self-managed** (`phy#0 (self-managed)` in `iw reg get`) — the **firmware** decides channel flags, not cfg80211 |
 
@@ -120,10 +120,12 @@ Test recipe (SSID of the test home router, not generic):
 Note: `dhclient` is NOT installed in the rootfs; NetworkManager
 handles addressing. Restore it after testing: `systemctl start NetworkManager`.
 
-## ⚠️ Final state: 5 GHz RX is weak on every combination tried
+## ✅ 5 GHz RX fixed — was weak on every combination, now resolved
 
-The tablet **associates** on ch36 (`wpa_state=COMPLETED`) and TX is healthy,
-but RX is ~50 dB below physics:
+The tablet **associates** on ch36 (`wpa_state=COMPLETED`) and TX is healthy.
+**As of 2026-09-15 RX is fixed** (LE_X13S BDF substitution, ~47 dB recovery —
+see the result section above). Prior state (before the fix), RX was ~50 dB
+below physics:
 
 | Band | RSSI | RX bitrate | TX bitrate |
 |---|---|---|---|
@@ -178,11 +180,11 @@ md5-verified; Wi-Fi back on 2.4 GHz ch1 at -40 dBm.
 ### Verified end-state (persisted)
 
 - `amss.bin` = IOE 04866.5 (`e38e434e`) · `m3.bin` = IOE (`75f72459`)
-- `regdb.bin` = linux-firmware (`f67be836`) · `board-2.bin` = linux-firmware
-  generic (`df8157b9`) · `board.bin` = Samsung `e10` (`137e9438`, ignored, kept
-  for fallback)
-- Wi-Fi 2.4 GHz healthy; 5 GHz weak-RX limitation documented in
-  [KNOWN-ISSUES.md](KNOWN-ISSUES.md) #7.
+- `regdb.bin` = linux-firmware (`f67be836`) · `board-2.bin` = **5 GHz-fixed
+  LE_X13S payload** (`872764e4`, generic at `.generic-bak`) · `board.bin` =
+  Samsung `e10` (`137e9438`, ignored, kept for fallback)
+- Wi-Fi 2.4 GHz healthy; **5 GHz RX restored** (was weak-RX, see
+  [KNOWN-ISSUES.md](KNOWN-ISSUES.md) #7, now resolved).
 
 ## Internet research — why 5 GHz RX is weak (2026-09-15)
 
@@ -203,7 +205,7 @@ Wi-Fi bug repos.
 - `qmi-board-id=255` is the **generic/unprogrammed** marker (no valid OTP
   board id). Our tablet also reports `subsystem-device=0108`, **Qualcomm's own
   reference ID** — i.e. the loaded 60,036 B payload
-  (`bus=pci,vendor=17cb,device=1103,subsystem-vendor=17cb,subsystem-device=0108,qmi-chip-id=2,qmi-board-id=255`)
+  (`bus=pci,vendor=17cb,device=1103,subsystem-vendor=17cb,subsystem-device=0108,qmi-chip-id=18,qmi-board-id=255`)
   is a *reference-design* board file, not a per-device one.
 - The `variant` mechanism (SMBIOS on x86, `qcom,ath11k-calibration-variant`
   in DT) exists precisely because the firmware-visible IDs are often not
@@ -242,15 +244,57 @@ different device's slot and loads cleanly:
 - **ASUS QCNFA765 repo** — remaps a missing subsystem ID in `board-2.bin` to
   a compatible borrowed config (`e105 / board-id 268`) so Wi-Fi loads at all.
 
-**Proposed experiment (not yet done):** extract linux-firmware's WCN6855
-hw2.1 `board-2.bin`, pick a *different* vendor's board file for the same
-`device=1103, chip-id=2` family (e.g. the HP_G8_Lancia14 / board-id 268 mass
-used by the HP submissions, or Qualcomm's own board files for other
-subsystem-device IDs), remap its data into our
-`subsystem-device=0108, qmi-board-id=255` slot with `ath11k-bdencoder`, flash,
-and measure 5 GHz RSSI. A meaningful **RX-gain** change would confirm the
-generic-BDF RX-parameter hypothesis and give us a tuning knob; no change keeps
-the generic reference BDF as the best-known data.
+**Proposed experiment (done 2026-09-15 — SUCCESS, see below):** extract
+linux-firmware's WCN6855 hw2.1 `board-2.bin`, pick a *different* vendor's board
+file for the same `device=1103, chip-id=18` family (e.g. the HP_G8_Lancia14 /
+board-id 268 mass used by the HP submissions, or Qualcomm's own board files for
+other subsystem-device IDs), remap its data into our
+`subsystem-device=0108, qmi-board-id=255` slot with `bdftool.py` (see below),
+flash, and measure 5 GHz RSSI. A meaningful **RX-gain** change would confirm the
+generic-BDF RX-parameter hypothesis and give us a tuning knob.
+
+### BDF substitution result (2026-09-15) — 5 GHz RX fixed with the LE_X13S board file
+
+Board files were reassembled with `/tmp/opencode/bdf-test/bdftool.py` (a small
+Python re-implementation of `ath11k-bdencoder`: parses the `QCA-ATH11K-BOARD`
+container into ID-0/ID-1 IEs, each with id-0 name / id-1 payload sub-IEs,
+supports `list`/`md5s`/`dump`/`swap`). The tablet's active board-2.bin has 122
+board entries; the matched payload was the generic 60,036 B
+(md5 `0e92fa42e6b9895e4afd7a281bbed079`), assumed to be Qualcomm's reference.
+
+Candidates from the same container (all same-template family the IOE firmware
+loads), swapped into the exact-ABI slot and tested with a self-restoring script
+(`/tmp/opencode/bdf-test/test-bdf.sh`, md5-verified install → ath11k
+rmmod/modprobe reload → 3× `iw scan` of the 5180 MHz AP → restore original →
+reload):
+
+| Swap candidate | Payload md5 | 5 GHz RSSI at 2–3 m |
+|---|---|---|
+| generic (current, control) | `0e92fa42` | -86 … -87 dBm |
+| **LE_X13S / NTM_TW220** (Lenovo Snapdragon X13s, same `0108` subsystem, chip-id 18) | `6d42746b` | **-39 … -40 dBm** |
+| restore generic (control) | `0e92fa42` | **-87 dBm** (reproducible flip) |
+
+The LE_X13S board file (60,008 B) — device-tuned data for the same Qualcomm
+`0108` reference subsystem — raises 5 GHz RX by **~47 dB**, to the level of
+2.4 GHz (-39…-40 dBm vs 2.4 GHz -28 dBm, consistent with normal 5 GHz path
+loss). 2.4 GHz is unchanged. This is the **RX-gain/antenna-mapping data the
+generic reference BDF lacks**, confirming the root-cause hypothesis. It was
+persisted as the tablet's board-2.bin (md5 `872764e409ea2475d33de5c1aea0e2c6`,
+backup of the generic at `board-2.bin.generic-bak`) and staged for the rootfs
+build in `local-assets/firmware-overrides/usr/lib/firmware/ath11k/WCN6855/hw2.1/board-2.bin`
+(staged automatically by `rootfs/fetch-local-assets.sh`).
+
+End-to-end re-verified on ch36 (wpa_supplicant, `scan_freq=5180`):
+`authorized: yes`, `signal avg: -45 dBm`, `beacon signal avg: -43 dBm`,
+`last/avg ack signal: -44 dBm`, `rx bitrate 6 MBit/s`, `tx bitrate 13 MBit/s`
+at only 11 packets exchanged — the link is strong; TX/RX bitrate climbs with
+traffic. Other BSSIDs on 5180 still scan at -88 dBm (no global inflation:
+the reading is genuine RX).
+
+> **Note on the numbers:** the -40 dBm reading is the *router's AP* as
+> received by the tablet. A -47 dB jump on the same AP, same spot, same
+> firmware, only flipping the BDF — with a -87 restore control in between — is
+> a clean causal attribution.
 
 ## Kernel source landmarks
 

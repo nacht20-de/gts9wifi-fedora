@@ -11,7 +11,7 @@
 | 4 | **No camera** | Camera does not work (no drivers — see also README "What works") |
 | 5 | **No rotation sensor** | Screen auto-rotation does not work — **fixed 2026-09-15** (see below) |
 | 6 | **USB debug link flaky** | The RNDIS USB gadget stops answering the host's bind handshake after session/suspend churn and won't rebind until replug — **fixed 2026-09-15** (see below) |
-| 7 | **Weak 5 GHz Wi-Fi RX** | 5 GHz connects but RX is ~50 dB below physics (-89 dBm vs 2.4 GHz -28 dBm at the same spot; 5 GHz TX is healthy at 351 MBit/s VHT-80 NSS2). Verified on every loadable firmware+BDF combination (all 8 Samsung board.bin variants, the generic board-2 matched entry, LITE and IOE families). Samsung BDFs/firmware that might carry the device's 5 GHz RX calibration cannot be loaded on mainline (both crash ath11k). **Hardware ruled out 2026-09-15 via Android A/B test (5 GHz strong on stock Android at the same spot) — the deficit is a firmware/software RX-tuning mismatch, not a hardware fault. See below and WIFI.md** |
+| 7 | **Weak 5 GHz Wi-Fi RX** | 5 GHz connects but RX was ~50 dB below physics (-89 dBm vs 2.4 GHz -28 dBm at the same spot; 5 GHz TX healthy). **FIXED 2026-09-15** — LE_X13S BDF substitution restores ~47 dB (5 GHz now -40 dBm); no kernel change. Hardware fault ruled out via Android A/B (5 GHz strong on stock). See below and WIFI.md |
 
 ## Palm rejection research (issue 2, 2026-09-14)
 
@@ -213,5 +213,31 @@ tuning mismatch, not a hardware fault. Prime suspect: the generic BDF / IOE
 firmware pair missing the device-specific 5 GHz RX gain/antenna config, or an
 ath11k RX-path quirk on hw2.1.
 
-**Status:** investigated + hardware ruled out 2026-09-15 (Android A/B);
-documented, no fix available on mainline.
+**FIXED 2026-09-15 — BDF substitution with the LE_X13S board file works:**
+
+The generic 60,036 B matched payload (md5 `0e92fa42`) was swapped for the
+**Lenovo Snapdragon X13s** board file (LE_X13S / NTM_TW220, md5 `6d42746b`,
+60,008 B — same `subsystem-device=0108` / chip-id 18 Qualcomm reference
+subsystem, device-tuned) inside the board-2.bin container using `bdftool.py`
+(custom Python re-implementation of `ath11k-bdencoder`). Measured at the same
+2–3 m spot, on the same AP/firmware, with a reload+restore control between
+(scripts: `/tmp/opencode/bdf-test/bdftool.py`, `test-bdf.sh`):
+
+| board-2.bin payload | 5 GHz (5180 MHz) RSSI |
+|---|---|
+| generic (control) | -86 … -87 dBm |
+| **LE_X13S** | **-39 … -40 dBm** |
+| restore generic (control) | **-87 dBm** (reproducible) |
+
+~47 dB 5 GHz RX recovery. End-to-end re-check on ch36: `signal avg -45 dBm`,
+`beacon signal avg -43 dBm`, `authorized/associated yes`, 2.4 GHz unchanged
+(-28 dBm). AES: the same measurement chain that reported -87 for the generic
+BDF reports -40 for LE_X13S with no other change ⇒ causal. Persisted on the
+tablet (`board-2.bin` md5 `872764e4`; generic backed up to
+`board-2.bin.generic-bak`) and staged in
+`local-assets/firmware-overrides/usr/lib/firmware/ath11k/WCN6855/hw2.1/board-2.bin`
+(fetched automatically by `rootfs/fetch-local-assets.sh`) so rootfs rebuilds
+carry the fix.
+
+**Status:** **resolved 2026-09-15** — 5 GHz RX restored (~47 dB) via LE_X13S
+BDF substitution; no kernel change needed.
