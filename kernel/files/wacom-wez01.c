@@ -17,7 +17,6 @@
 #include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/input.h>
-#include <linux/input/touchscreen.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/regulator/consumer.h>
@@ -87,7 +86,6 @@ module_param(pen_y_max, int, 0644);
 struct wacom_wez01 {
 	struct i2c_client *client;
 	struct input_dev *input;
-	struct touchscreen_properties prop;
 	struct gpio_desc *fwe;
 	u16 max_x;
 	u16 max_y;
@@ -214,8 +212,8 @@ static irqreturn_t wacom_wez01_irq_handler(int irq, void *dev_id)
 	/*
 	 * The digitizer sits in the same orientation as the FTS sensor:
 	 * invert-x + swap maps raw coordinates onto the landscape panel.
-	 * The WEZ01's usable matrix is inset from the glass (measured:
-	 * X 467..22979, Y 1509..13690), so scale it onto the full panel.
+	 * Report native digitizer coordinates (100 units/mm); libinput
+	 * maps them to the output using the resolution and physical size.
 	 */
 	{
 		int px, py;
@@ -224,8 +222,6 @@ static irqreturn_t wacom_wez01_irq_handler(int irq, void *dev_id)
 		py = w->max_x - get_unaligned_be16(&data[1]);
 		px = clamp(px, pen_x_min, pen_x_max);
 		py = clamp(py, pen_y_min, pen_y_max);
-		px = (px - pen_x_min) * 2560 / (pen_x_max - pen_x_min);
-		py = (py - pen_y_min) * 1600 / (pen_y_max - pen_y_min);
 		input_report_abs(w->input, ABS_X, px);
 		input_report_abs(w->input, ABS_Y, py);
 	}
@@ -316,20 +312,18 @@ static int wacom_wez01_probe(struct i2c_client *client)
 	input_set_capability(input, EV_KEY, BTN_TOOL_PEN);
 	input_set_capability(input, EV_KEY, BTN_TOOL_RUBBER);
 
-	input_set_abs_params(input, ABS_X, 0, 2559, 4, 0);
-	input_set_abs_params(input, ABS_Y, 0, 1599, 4, 0);
+	input_set_abs_params(input, ABS_X, 0, w->max_y, 0, 0);
+	input_set_abs_params(input, ABS_Y, 0, w->max_x, 0, 0);
 	input_set_abs_params(input, ABS_PRESSURE, 0, w->max_pressure, 0, 0);
 	input_set_abs_params(input, ABS_DISTANCE, 0, w->max_height, 0, 0);
 	input_set_abs_params(input, ABS_TILT_X, -w->max_tilt_x, w->max_tilt_x,
 			     0, 0);
 	input_set_abs_params(input, ABS_TILT_Y, -w->max_tilt_y, w->max_tilt_y,
 			     0, 0);
-	input_abs_set_res(input, ABS_X, 11);
-	input_abs_set_res(input, ABS_Y, 11);
+	input_abs_set_res(input, ABS_X, WEZ01_RES_UNITS_PER_MM);
+	input_abs_set_res(input, ABS_Y, WEZ01_RES_UNITS_PER_MM);
 
 	__set_bit(INPUT_PROP_DIRECT, input->propbit);
-
-	touchscreen_parse_properties(input, false, &w->prop);
 
 	ret = devm_request_threaded_irq(dev, client->irq, NULL,
 					wacom_wez01_irq_handler, IRQF_ONESHOT,

@@ -49,7 +49,8 @@ Both devices carry the same swap/invert orientation in the DTS
 (`touchscreen-*-x` / `touchscreen-swapped-x-y`), so suppression needs no extra
 coordinate handling.
 
-**Status 2026-09-15 — implemented, flashed, verified working:**
+**Status 2026-09-15 — palm rejection implemented, flashed, verified working; S Pen
+native resolution fix applied 2026-09-16:**
 - `kernel/files/wacom-wez01.{c,h}` and `kernel/files/fts1ba90a.c` updated;
   `kernel/prepare.sh` installs the new header.
 - Kernel rebuilt and boot image regenerated from a **fresh `Image.gz`**
@@ -63,6 +64,34 @@ coordinate handling.
   `/proc/kallsyms`; drivers probe clean, no IRQ storms/errors.
 - **User-verified: palm rejection works** (finger touches suppressed while the
   pen is in range; FTS_TYPE_PALM contacts dropped).
+
+**Status 2026-09-16 — S Pen native digitizer resolution fix applied:**
+- `kernel/files/wacom-wez01.c` updated: ABS_X/ABS_Y ranges now report the
+  full native digitizer grid (0..23603 / 0..14752) at 100 units/mm resolution
+  instead of truncating to screen-pixel 2560×1600 (11 units/mm). The
+  `#px*2560/(max_x-min_x)` scaling in the IRQ handler is removed; libinput
+  uses the physical size and resolution to map pen coordinates to output.
+  Fuzz dropped from 4→0 (raw coordinates, no forced smoothing).
+- Kernel rebuilt with same recipe as palm-rejection fix, flashed via `dd` to
+  `/dev/disk/by-partlabel/boot`; verified on-device via `libinput list-devices`
+  (Size: 236×148mm) and direct `EVIOCGABS` readback (`ABS_X 0..23603 res 100,
+  ABS_Y 0..14752 res 100`).
+
+**Build recipe (critical — `make clean` before switching toolchains):**
+- The tablet's running kernel uses `LLVM=1` with `clang 21.1.8` (not `gcc`).
+  Always rebuild with `make ARCH=arm64 LLVM=1`. A gcc build (`CROSS_COMPILE=...`)
+  produces an incompatible kernel: different ABI (no CFI), mismatched
+  `vermagic` flags, and a stale RELR probe that disables `CONFIG_RELR` (adds
+  ~14 MB to the Image from uncompressed relocations). These three together
+  cause a **bootloop** because the initramfs and rootfs modules (signed with
+  the clang/CFI key) refuse to load.
+- Before rebuilding, run `make ARCH=arm64 LLVM=1 clean` to remove any stale
+  gcc-built `.o` files, then `make ARCH=arm64 LLVM=1 olddefconfig`.
+- Verify after `olddefconfig` that `CONFIG_RELR=y`, `CONFIG_CFI=y`, and
+  `CONFIG_CC_IS_CLANG=y` are all present — the LLVM tools (`llvm-nm`,
+  `llvm-objcopy`, etc.) must be in `$PATH` (e.g. via symlinks in
+  `/usr/local/bin` to the `llvm-21` versioned binaries) for the RELR probe to
+  pass.
 
 ## Rotation sensor research (issue 5, 2026-09-15)
 
