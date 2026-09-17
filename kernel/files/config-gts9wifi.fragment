@@ -1,3 +1,13 @@
+# Do NOT force the module-signature lockdown.  The stock Fedora base config
+# enables CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY, which only accepts modules
+# carrying the signing key embedded in the at-build-time kernel.  Republishing
+# a rebuilt kernel yields a fresh key, so the modules shipped in the rootfs
+# (signed for the original build) get rejected - killing WiFi/BT.  This tablet
+# is booted through avbtool hash footers anyway (no real chain of trust), so
+# weaken the lock to match how the images are really validated.
+# CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY is not set
+CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y
+
 # Early framebuffer and local console.
 CONFIG_SYSFB=y
 CONFIG_SYSFB_SIMPLEFB=y
@@ -256,3 +266,13 @@ CONFIG_VIDEO_QCOM_IRIS=y
 CONFIG_DRM_DISPLAY_HELPER=y
 CONFIG_DRM_DISPLAY_DP_HELPER=y
 CONFIG_DRM_DISPLAY_DSC_HELPER=y
+
+# Cameras: 13 MP rear + 12 MP front Hynix HI1337 with a DW9808 AF actuator.
+# The whole V4L2 camera graph (camss, camcc, CCI) defaults to =m in mainline
+# and this port does not autoload modules, so the visible roots must be =y.
+# CONFIG_VIDEO_QCOM_CAMSS=y's selects pull VIDEOBUF2_DMA_SG/V4L2_FWNODE up too.
+CONFIG_VIDEO_QCOM_CAMSS=y
+CONFIG_I2C_QCOM_CCI=y
+CONFIG_SM_CAMCC_8550=y
+CONFIG_VIDEO_HI1337_GTS9U=y
+CONFIG_VIDEO_DW9808_VCM=y

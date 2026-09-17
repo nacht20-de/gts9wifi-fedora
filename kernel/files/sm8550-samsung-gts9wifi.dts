@@ -270,6 +270,22 @@
 	};
 
 	/*
+	 * GPIO15 enables the rear-main module rail shared by the HI1337 and its
+	 * DW9808 focus actuator.  Model it as a regulator so either media entity
+	 * can hold the rail without two drivers fighting over the same GPIO.
+	 * This is Samsung downstream "RCAM_LDO_EN" (gpio 0x0f).
+	 */
+	rear_cam_vio: rear-cam-vio-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "rear_cam_vio";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		vin-supply = <&vreg_l4b_1p8>;
+		gpio = <&tlmm 15 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	/*
 	 * EB-BX916ABY.  The design figures come from Samsung's own sec-battery
 	 * node (battery,battery_full_capacity = 8160 mAh, chg_float_voltage =
 	 * 4440 mV), not from the marketing "11200 mAh" figure.  The fuel gauge
@@ -439,6 +455,14 @@
 			regulator-always-on;
 		};
 
+		/* Shared 1.8 V camera I/O rail (Samsung downstream pm_humu_l4). */
+		vreg_l4b_1p8: ldo4 {
+			regulator-name = "vreg_l4b_1p8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
 		/* NXP PTN3222 eUSB2 3.1 V rail, exact X710 stock voltage. */
 		vreg_l5b_3p104: ldo5 {
 			regulator-name = "vreg_l5b_3p104";
@@ -486,11 +510,17 @@
 			regulator-always-on;
 		};
 
-		/* Display panel VDD (1.2 V digital core). */
-		vreg_l11b_1p2: ldo11 {
-			regulator-name = "vreg_l11b_1p2";
-			regulator-min-microvolt = <1200000>;
-			regulator-max-microvolt = <1200000>;
+		/*
+		 * Stock pm_humu_l11: a shared 1.1 V rail used by both the display
+		 * panel VDD and the front camera's digital core (Samsung downstream
+		 * fragment votes this PMIC L11 at 0x10c8e0 = 1.1 V).  Both consumers
+		 * sit on the same physical LDO, so one common 1.104 V (the closest
+		 * representable NLDO step to the stock 1.100 V) serves both.
+		 */
+		vreg_l11b_1p1: ldo11 {
+			regulator-name = "vreg_l11b_1p1";
+			regulator-min-microvolt = <1104000>;
+			regulator-max-microvolt = <1104000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
@@ -549,6 +579,20 @@
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
 						   RPMH_REGULATOR_MODE_HPM>;
+		};
+	};
+
+	/* PM8550VS-C L1 is the 1.1 V digital rail for the rear main camera. */
+	regulators-1 {
+		compatible = "qcom,pm8550vs-rpmh-regulators";
+		qcom,pmic-id = "c";
+
+		vreg_l1c_1p1: ldo1 {
+			regulator-name = "vreg_l1c_1p1";
+			/* PM8550VS NLDO steps are 8 mV; 1.104 V is closest to stock 1.1 V. */
+			regulator-min-microvolt = <1104000>;
+			regulator-max-microvolt = <1104000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 	};
 
@@ -735,6 +779,22 @@
 	 * does not access the TrustZone-owned TLMM registers.
 	 */
 	gpio-reserved-ranges = <36 4>;
+
+	/* CCI1 master 1 is Samsung's AON CCI pair on GPIO208/209. */
+	cci1_1_default: cci1-1-default-state {
+		pins = "gpio208", "gpio209";
+		function = "aon_cci";
+		drive-strength = <4>;
+		bias-pull-up;
+	};
+
+	cci1_1_sleep: cci1-1-sleep-state {
+		pins = "gpio208", "gpio209";
+		function = "aon_cci";
+		drive-strength = <4>;
+		bias-disable;
+		input-enable;
+	};
 
 	hall_cover_n: hall-cover-n-state {
 		pins = "gpio107";
@@ -1441,7 +1501,7 @@
 		reg = <0>;
 
 		vddio-supply = <&vreg_l12b_1p8>;
-		vdd-supply = <&vreg_l11b_1p2>;
+		vdd-supply = <&vreg_l11b_1p1>;
 		vci-supply = <&vreg_l13b_3p0>;
 		avdd-supply = <&display_avdd>;
 
@@ -1599,4 +1659,125 @@
  */
 &hub_i2c6_data_clk {
 	drive-strength = <8>;
+};
+
+/*
+ * Camera — rear 13 MP HI1337 + DW9808 autofocus, front 12 MP HI1337.
+ * Sensor addresses are the CamX default (rear 0x21 on CCI0 bus 1,
+ * front 0x20 on CCI1 bus 1, VCM 0x0c on CCI1 bus 0) and verified
+ * against the downstream eeprom slave-addr encodings.
+ *
+ * Samsung's L11B rail carries both display VDD and the front camera
+ * digital core (pm_humu_l11); see the L11B regulator comment above.
+ */
+
+&camss {
+	status = "okay";
+	vdda-phy-supply = <&vreg_l1e_0p88>;
+	vdda-pll-supply = <&vreg_l3e_1p2>;
+
+	ports {
+		port@1 {
+			csiphy1_hi1337_rear_ep: endpoint {
+				clock-lanes = <4>;
+				data-lanes = <0 1 2 3>;
+				remote-endpoint = <&hi1337_rear_ep>;
+			};
+		};
+
+		/*
+		 * port@4 (front CSIPHY4) disabled: front sensor I2C ENXIO at
+		 * 0x20 — blocks the camss async notifier from completing,
+		 * which prevents the rear camera from appearing in the media
+		 * graph.  Remove this comment and the port@4 block above once
+		 * the front power/reset/MCLK is debugged.
+		 */
+	};
+};
+
+&cci0 {
+	status = "okay";
+};
+
+&cci0_i2c1 {
+	hi1337_rear: camera@21 {
+		compatible = "hynix,hi1337-gts9u-rear";
+		reg = <0x21>;
+		clocks = <&camcc CAM_CC_MCLK2_CLK>;
+		assigned-clocks = <&camcc CAM_CC_MCLK2_CLK>;
+		assigned-clock-rates = <19200000>;
+		vddio-supply = <&rear_cam_vio>;
+		vdig-supply = <&vreg_l1c_1p1>;
+		reset-gpios = <&tlmm 70 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&cam2_default>;
+		pinctrl-1 = <&cam2_sleep>;
+		pinctrl-names = "default", "sleep";
+		orientation = <1>;
+		/*
+		 * Landscape-native rear module; frames are already upright.
+		 * Declaring <90> made libcamera report the wrong rotation and
+		 * GNOME Camera's viewfinder rotate by 90°.
+		 */
+		rotation = <0>;
+		lens-focus = <&rear_focus>;
+
+		port {
+			hi1337_rear_ep: endpoint {
+				clock-lanes = <4>;
+				data-lanes = <0 1 2 3>;
+				link-frequencies = /bits/ 64 <360200000>;
+				remote-endpoint = <&csiphy1_hi1337_rear_ep>;
+			};
+		};
+	};
+};
+
+&cci1 {
+	status = "okay";
+	pinctrl-0 = <&cci1_0_default &cci1_1_default>;
+	pinctrl-1 = <&cci1_0_sleep &cci1_1_sleep>;
+
+	cci1_i2c1: i2c-bus@1 {
+		reg = <1>;
+		clock-frequency = <1000000>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+};
+
+&cci1_i2c0 {
+	rear_focus: lens@c {
+		compatible = "dongwoon,dw9808-vcm";
+		reg = <0x0c>;
+		vcc-supply = <&rear_cam_vio>;
+	};
+};
+
+&cci1_i2c1 {
+	hi1337_front: camera@20 {
+		compatible = "hynix,hi1337-gts9u-front";
+		/* Stock CamX slaveAddress 0x40 is a 7-bit Linux address of 0x20. */
+		reg = <0x20>;
+		/* I2C identity reads ENXIO — see port@4 comment. Disabled until
+		 * the front module power/reset/MCLK is debugged. */
+		status = "disabled";
+		clocks = <&camcc CAM_CC_MCLK4_CLK>;
+		assigned-clocks = <&camcc CAM_CC_MCLK4_CLK>;
+		assigned-clock-rates = <19200000>;
+		vddio-supply = <&vreg_l4b_1p8>;
+		vdig-supply = <&vreg_l11b_1p1>;
+		enable-gpios = <&tlmm 17 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&tlmm 117 GPIO_ACTIVE_LOW>;
+		/*
+		 * This sensor probes first and owns the MCLK4 pinmux shared by
+		 * both front cameras on the Ultra; gts9wifi has only one front.
+		 */
+		pinctrl-0 = <&cam4_default>;
+		pinctrl-1 = <&cam4_sleep>;
+		pinctrl-names = "default", "sleep";
+		orientation = <0>;
+		rotation = <270>;
+
+		/* port/endpoint commented: references the removed camss port@4. */
+	};
 };

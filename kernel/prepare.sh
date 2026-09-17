@@ -121,6 +121,33 @@ EOF
 grep -q 'ps5169.o' drivers/usb/typec/mux/Makefile || \
     echo 'obj-$(CONFIG_TYPEC_MUX_PS5169)	+= ps5169.o' >> drivers/usb/typec/mux/Makefile
 
+# Hynix HI1337 camera sensor (port of the S9 Ultra mainline driver).
+cp "$here/files/hi1337_gts9u.c" drivers/media/i2c/
+cp "$here/files/hi1337_gts9u_tables.h" drivers/media/i2c/
+grep -q 'VIDEO_HI1337_GTS9U' drivers/media/i2c/Kconfig || sed -i '/^endif # VIDEO_DEV$/i \
+config VIDEO_HI1337_GTS9U\
+\ttristate "Hynix HI1337 camera sensor driver (shared S9/S9 Ultra)"\
+\tdepends on I2C && VIDEO_DEV\
+\tdepends on MEDIA_CONTROLLER\
+\tdepends on OF\
+' drivers/media/i2c/Kconfig
+grep -q 'hi1337_gts9u.o' drivers/media/i2c/Makefile || \
+    echo 'obj-$(CONFIG_VIDEO_HI1337_GTS9U)	+= hi1337_gts9u.o' >> drivers/media/i2c/Makefile
+
+# Dongwoon DW9808 voice-coil lens actuator.
+cp "$here/files/dw9808_vcm.c" drivers/media/i2c/
+grep -q 'VIDEO_DW9808_VCM' drivers/media/i2c/Kconfig || sed -i '/^endif # VIDEO_DEV$/i \
+config VIDEO_DW9808_VCM\
+\ttristate "DW9808 lens voice coil support"\
+\tdepends on I2C && VIDEO_DEV\
+\tdepends on MEDIA_CONTROLLER\
+' drivers/media/i2c/Kconfig
+grep -q 'dw9808_vcm.o' drivers/media/i2c/Makefile || \
+    echo 'obj-$(CONFIG_VIDEO_DW9808_VCM)	+= dw9808_vcm.o' >> drivers/media/i2c/Makefile
+
+# Kernel release tag must match the rootfs modules (vermagic ABI).
+echo "-gts9wifi" > localversion-gts9wifi
+
 # pmOS mainline base config + gts9wifi fragment.
 cp "$here/files/config-mainline.aarch64" .config
 scripts/kconfig/merge_config.sh -m .config "$here/files/config-gts9wifi.fragment"
