@@ -13,3 +13,7 @@ build/
 
 # Never commit firmware blobs even outside local-assets
 firmware-samsung-gts9wifi.tar.gz
+
+# Local scratch / sibling project — never tracked here
+assets/
+ubuntu-galaxy-tab-s9-ultra/
