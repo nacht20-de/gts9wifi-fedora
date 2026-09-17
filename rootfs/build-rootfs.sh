@@ -43,7 +43,7 @@ assets="$repo_dir/local-assets"
 [ -n "$firmware_tar" ] || firmware_tar="$assets/firmware.tar.gz"
 
 # The partition UUIDs the untouched pmOS initramfs/eMMC boot chain expects
-# (see docs/PORT-KIT.md: the initramfs mounts /boot by this UUID).
+# (see the gts9wifi Fedora port kit page in the wiki: the initramfs mounts /boot by this UUID).
 boot_uuid="b7869a36-d9a0-4403-b9fd-e0ebec016b76"
 root_uuid="d2a235a8-37cd-4bac-be53-16caf2bfdd21"
 
@@ -196,10 +196,10 @@ if [ -d "$assets/firmware-overrides" ]; then
     echo ">>> Applying firmware overrides (Samsung WCN6855 BT NVM/rampatch + IOE Wi-Fi set)"
     # Replaces the linux-firmware BT blobs with Samsung's device-tuned ones
     # (hpnv21g.bin + hpbtfw21.tlv): without them BT traffic lags under
-    # 2.4GHz Wi-Fi activity (see docs/KNOWN-ISSUES.md #3).  May also carry
+    # 2.4GHz Wi-Fi activity (see the known-issues page in the wiki, issue 3).  May also carry
     # the WCN6855 IOE 04866.5 amss/m3 that mainline runs best on, plus the
     # board-2.bin with the LE_X13S payload that restores 5 GHz RX
-    # (2.4GHz/5GHz fixes, see #7 and docs/WIFI.md).
+    # (2.4GHz/5GHz fixes, see #7 and the Wi-Fi page in the wiki).
     # Applied last so it wins over both the dnf linux-firmware package and
     # the firmware payload.
     cp -a "$assets/firmware-overrides/." "$rootfs/"
