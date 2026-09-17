@@ -17,3 +17,19 @@ firmware-samsung-gts9wifi.tar.gz
 # Local scratch / sibling project — never tracked here
 assets/
 ubuntu-galaxy-tab-s9-ultra/
+
+# Pi agent tooling
+.pi/
+
+# The project wiki
+.llm-wiki/
+
+# Build outputs / checksums / large blobs
+SHA256SUMS
+gts9wifi-fedora-*.tar.gz
+gts9wifi-fedora-*.zip
+
+# New vendored kernel driver sources
+kernel/files/dw9808_vcm.c
+kernel/files/hi1337_gts9u.c
+kernel/files/hi1337_gts9u_tables.h
