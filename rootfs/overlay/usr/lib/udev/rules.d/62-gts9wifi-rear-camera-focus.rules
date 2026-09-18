@@ -2,11 +2,10 @@
 #
 # The rear camera's DW9808 VCM lens has no autofocus anywhere in the stack: the
 # kernel driver (kernel/files/dw9808_vcm.c) exposes only the manual
-# V4L2_CID_FOCUS_ABSOLUTE control, libcamera 0.7.1's simple pipeline neither
-# instantiates a CameraLens nor ships any AF algorithm in its software IPA, and
-# Megapixels only autofocuses through a hardware AF-trigger control that this
-# driver does not provide.  Applications therefore never move the lens, and it
-# keeps whatever position was last set by hand.
+# V4L2_CID_FOCUS_ABSOLUTE control, and libcamera 0.7.1's simple pipeline neither
+# instantiates a CameraLens nor ships any AF algorithm in its software IPA.
+# Applications therefore never move the lens, and it keeps whatever position was
+# last set by hand.
 #
 # Pin a sane default instead.  The value is the middle of the only in-focus
 # range ever measured on this board: a contrast-detection sweep against a close,
