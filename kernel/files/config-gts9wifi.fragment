@@ -276,3 +276,15 @@ CONFIG_I2C_QCOM_CCI=y
 CONFIG_SM_CAMCC_8550=y
 CONFIG_VIDEO_HI1337_GTS9U=y
 CONFIG_VIDEO_DW9808_VCM=y
+
+# Netfilter packet queueing, for zapret's nfqws (DPI bypass).  Mainline leaves
+# all three symbols unset, so only zapret's tpws mode could run on this port,
+# and the ISP's current DPI profile defeats tpws for Discord and Roblox while
+# NFQUEUE-based desync works.  nfqws drives either backend: the iptables
+# "NFQUEUE" target or the nftables "queue" statement, both on top of
+# nfnetlink_queue (NETFILTER_NETLINK itself is already built-in above).  Shipped
+# as modules on purpose - the kernel requests them by name when zapret installs
+# its rules, so nothing needs to be built-in or autoloaded at boot.
+CONFIG_NETFILTER_NETLINK_QUEUE=m
+CONFIG_NETFILTER_XT_TARGET_NFQUEUE=m
+CONFIG_NFT_QUEUE=m
