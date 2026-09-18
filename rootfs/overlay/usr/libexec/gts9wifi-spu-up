@@ -1,0 +1,127 @@
+#!/bin/bash
+# Bring up the gts9wifi SPSS (secure processor) and its Android userspace peers.
+#
+# The SPSS is what the fingerprint stack needs: Samsung's EL721 driver talks to a
+# QTEE TA, the TA asks the SPU's sp_keymaster app for StrongBox services, and the
+# SPU in turn gets its NVM from the HLOS daemon sec_nvm.  Without the SPU the
+# fingerprint TA fails with "cache status 9936" (-64 KEYMASTER_NOT_CONFIGURED).
+#
+# Two non-obvious ordering facts drive this script:
+#
+#  1. The SP must boot AFTER sec_nvm is already serving.  The SP firmware's
+#     built-in sp_nvm app connects to sec_nvm's "sec_nvm_sp_nvm" SPCOM service
+#     shortly after GLINK comes up and does not retry.  If the SP was booted
+#     before sec_nvm existed (or if it was booted by hand with
+#     "echo start > /sys/class/remoteproc/remoteproc1/state"), it never requests
+#     its SKP segment, sec_nvm never calls spcom_signal_nvm_ready(), and
+#     spdaemon's 30 s nvm_ready wait expires into "going to sleep for a day".
+#     A crashed SPSS also cannot be recycled in place (rproc_shutdown() silently
+#     does nothing here), so a retry needs a reboot.
+#
+#  2. The daemons must be preloaded with the Android shim
+#     (tools/gts9u-android-shim.c -> <runtime>/lib64/libgts9u-android-shim.so).
+#     It supplies the property area, log sink, wakelocks and the libvmmem VmMem
+#     answers this port has no kernel support for.  Without it spdaemon spins in
+#     libbinder waiting for servicemanager.ready and sec_nvm's ION allocation
+#     fails at CreateVmMem(), which makes the SP watchdog-bite ~0.5 s after boot.
+#
+# Success is "[spdaemon] SP Apps were loaded successfully." in spdaemon.log and
+# the SPSS remoteproc staying in state "running".
+set -u
+
+R=/var/lib/ubuntu-gts9u/android-secnvm-root
+L=/var/log/gts9u-spu-test
+STATE=/sys/class/remoteproc/remoteproc1/state
+SHIM="$R/lib64/libgts9u-android-shim.so"
+# qcom_spss creates spss_utils and spcom as its own child platform devices, so
+# the module order only has to put qcom_spss before them.
+MODS="qcom_spss_irq qcom_sp_hlos_heap qcom_glink_spss qcom_spss spss_utils spcom snvm qcomtee"
+
+echo "== kill any previous daemons =="
+pkill -f 'bin/sec_nvm' 2>/dev/null
+pkill -f 'bin/spdaemon' 2>/dev/null
+sleep 1
+pgrep -af 'bin/(sec_nvm|spdaemon)' | sed 's/^/  still alive: /' || echo "  none left"
+
+# The port ships Waydroid, whose dev-binderfs.mount unit replaces /dev/binder,
+# /dev/hwbinder and /dev/vndbinder with symlinks into an (empty) /dev/binderfs
+# because CONFIG_ANDROID_BINDERFS is unset.  The real binder misc devices still
+# exist, so republish them as character devices; spdaemon cannot start without
+# a working /dev/binder.
+echo "== binder nodes =="
+for name in binder hwbinder vndbinder; do
+    dev="$(cat "/sys/class/misc/$name/dev" 2>/dev/null)"
+    [ -n "$dev" ] || { echo "  $name: no misc device registered"; continue; }
+    if [ -c "/dev/$name" ]; then
+        echo "  $name: already a char device ($dev)"
+        continue
+    fi
+    rm -f "/dev/$name"
+    mknod "/dev/$name" c "${dev%%:*}" "${dev##*:}" &&
+        chmod 600 "/dev/$name" && chown root:root "/dev/$name" &&
+        echo "  $name: created char device $dev"
+done
+
+echo "== modules =="
+for m in $MODS; do modprobe "$m" 2>/dev/null || echo "  modprobe $m failed"; done
+lsmod | grep -E "qcom_spss|spcom|spss_utils|glink_spss|sp_hlos" |
+    awk '{printf "  %-20s %s\n", $1, $2}'
+
+# sec_nvm reads and commits the SPU's NVM segments from
+# /mnt/vendor/persist/secnvm/.  Work on a copy so the SPU's NVM can be exercised
+# without touching Android's live persist partition, and provide the spunvm
+# directory spdaemon probes for its IAR database (absent on this board, which
+# simply leaves IAR - firmware update - disabled).
+echo "== SPU NVM =="
+mkdir -p /var/lib/ubuntu-gts9u/persist-local /var/lib/ubuntu-gts9u/spunvm-local /mnt/vendor/spunvm
+if [ -d /mnt/vendor/persist/secnvm ] && ! mountpoint -q /var/lib/ubuntu-gts9u/persist-local; then
+    mkdir -p /var/lib/ubuntu-gts9u/persist-local/secnvm
+    cp -a /mnt/vendor/persist/secnvm/. /var/lib/ubuntu-gts9u/persist-local/secnvm/ 2>/dev/null
+fi
+echo "  segments: $(ls /var/lib/ubuntu-gts9u/persist-local/secnvm/ 2>/dev/null | tr '\n' ' ')"
+mountpoint -q /mnt/vendor/persist || mount --bind /var/lib/ubuntu-gts9u/persist-local /mnt/vendor/persist
+mountpoint -q /mnt/vendor/spunvm  || mount --bind /var/lib/ubuntu-gts9u/spunvm-local  /mnt/vendor/spunvm
+echo "  persist: $(findmnt -n -o SOURCE -T /mnt/vendor/persist)"
+echo "  spunvm : $(findmnt -n -o SOURCE -T /mnt/vendor/spunvm)"
+
+echo "== SPSS cold check =="
+[ -e "$STATE" ] || { echo "  no spss remoteproc (is qcom_spss loaded?)"; exit 1; }
+st="$(cat "$STATE")"
+echo "  spss state: $st"
+if [ "$st" != "offline" ]; then
+    echo "  REFUSING: the SPSS is not cold; a fresh handshake needs a reboot."
+    exit 1
+fi
+[ -f "$SHIM" ] || { echo "  REFUSING: $SHIM is missing (see tools/gts9u-android-shim.c)"; exit 1; }
+# spdaemon opens ./sys/devices/platform/soc/soc:qcom,spss_utils/firmware_name
+# relative to its cwd; the real node lives under soc@0/ and reads empty.
+echo "  firmware_name = [$(cat "$R/spdaemon-cwd/sys/devices/platform/soc/soc:qcom,spss_utils/firmware_name")]"
+
+mkdir -p "$L"
+chmod 777 "$L"
+rm -f "$L"/*.log
+
+# sec_nvm uses absolute paths, so cwd /; spdaemon needs the stub tree above.
+echo "== start sec_nvm (cwd /) =="
+( cd / && exec env PATH=/usr/sbin:/usr/bin:/sbin:/bin LD_LIBRARY_PATH="$R/lib64" LD_PRELOAD="$SHIM" \
+    "$R/bin/linker64" "$R/bin/sec_nvm" ) > "$L/sec_nvm.log" 2>&1 &
+sleep 0.3
+echo "== start spdaemon (cwd $R/spdaemon-cwd) =="
+( cd "$R/spdaemon-cwd" && exec env PATH=/usr/sbin:/usr/bin:/sbin:/bin LD_LIBRARY_PATH="$R/lib64" LD_PRELOAD="$SHIM" \
+    "$R/bin/linker64" "$R/bin/spdaemon" ) > "$L/spdaemon.log" 2>&1 &
+
+echo "== watching 90 s =="
+for i in $(seq 1 30); do
+    sleep 3
+    st="$(cat "$STATE" 2>/dev/null)"
+    printf "  t=%2ss spss=%-8s secnvm=%sB spdaemon=%sB\n" "$((i * 3))" "$st" \
+        "$(wc -c < "$L/sec_nvm.log")" "$(wc -c < "$L/spdaemon.log")"
+    grep -q "loaded successfully" "$L/spdaemon.log" 2>/dev/null && { echo "  *** SP apps loaded ***"; break; }
+    grep -q "going to sleep for a day" "$L/spdaemon.log" 2>/dev/null && { echo "  *** spdaemon gave up (nvm_ready timeout) ***"; break; }
+    [ "$st" = "crashed" ] && { echo "  *** SPSS crashed ***"; break; }
+done
+
+echo "== result =="
+grep -E "SP Apps were loaded successfully|SP Build|going to sleep" "$L/spdaemon.log" | sed 's/^/  /'
+echo "  spss state: $(cat "$STATE")"
+echo "  logs: $L/sec_nvm.log $L/spdaemon.log"
