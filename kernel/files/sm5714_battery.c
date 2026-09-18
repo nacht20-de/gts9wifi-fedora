@@ -51,6 +51,8 @@
 #define  SM5714_CHG_CNTL2_USB_OTG	0x07
 #define SM5714_CHG_REG_VBUSCNTL		0x15
 #define SM5714_CHG_REG_CHGCNTL2		0x18
+#define SM5714_CHG_REG_CHGCNTL4		0x1a
+#define  SM5714_CHG_BATREG_MASK		GENMASK(5, 0)
 #define SM5714_CHG_REG_BSTCNTL1		0x23
 #define  SM5714_CHG_BSTCNTL1_OTG_MASK	(GENMASK(7, 6) | GENMASK(3, 0))
 #define  SM5714_CHG_BSTCNTL1_5V1_900MA	0x46
@@ -110,6 +112,8 @@ struct sm5714_battery {
 	struct power_supply *psy_bat;
 	struct power_supply *psy_usb;
 	struct power_supply_battery_info *info;
+	/* Board battery-regulation voltage, 0 when board data is absent. */
+	unsigned int float_uv;
 	struct delayed_work poll_work;
 	int last_status;
 	int last_capacity;
@@ -149,6 +153,42 @@ static int sm5714_chg_update_bits(struct sm5714_battery *sm, u8 reg,
 		return 0;
 
 	return i2c_smbus_write_byte_data(sm->chg, reg, new);
+}
+
+/*
+ * Battery-regulation (float) voltage, CHGCNTL4[5:0], in the vendor encoding:
+ * 3.70-3.85 V in 50 mV steps, 3.90/4.00 V, then 4.05-4.62 V in 10 mV steps.
+ * The chip's OTP default is 4.38 V; the stock board data for this pack asks
+ * for 4.44 V (battery,chg_float_voltage = 0x1158), and the vendor charger
+ * driver programs that value from its platform data at init.  Leaving the
+ * OTP default in place charges the pack ~60 mV short and keeps the fuel
+ * gauge from ever reaching its 100 % point.
+ */
+static u8 sm5714_batreg_offset(unsigned int uv)
+{
+	unsigned int mv = uv / 1000;
+
+	if (mv <= 3700)
+		return 0x00;
+	if (mv < 3900)
+		return (mv - 3700) / 50;
+	if (mv < 4050)
+		return ((mv - 3900) / 100) + 4;
+	if (mv < 4630)
+		return ((mv - 4050) / 10) + 6;
+
+	/* Out of range: keep the chip's 4.2 V default, as the vendor does. */
+	return 0x15;
+}
+
+static int sm5714_set_float_voltage(struct sm5714_battery *sm)
+{
+	if (!sm->float_uv)
+		return 0;
+
+	return sm5714_chg_update_bits(sm, SM5714_CHG_REG_CHGCNTL4,
+				      SM5714_CHG_BATREG_MASK,
+				      sm5714_batreg_offset(sm->float_uv));
 }
 
 /*
@@ -384,6 +424,15 @@ static int sm5714_configure_charging(struct sm5714_battery *sm)
 
 	ret = i2c_smbus_write_byte_data(sm->chg, SM5714_CHG_REG_CHGCNTL2,
 					sm5714_fast_current_reg(fast_ma));
+	if (ret)
+		goto out_unlock;
+
+	/*
+	 * Re-arm the float voltage as well: the charger block loses its
+	 * programming when the cable has been out long enough for the chip to
+	 * power-cycle, so probe-time programming alone is not enough.
+	 */
+	ret = sm5714_set_float_voltage(sm);
 	if (ret)
 		goto out_unlock;
 
@@ -1144,6 +1193,16 @@ static int sm5714_probe(struct i2c_client *client)
 	/* Design capacity is board data; absent monitored-battery, skip it. */
 	if (power_supply_get_battery_info(sm->psy_bat, &sm->info))
 		sm->info = NULL;
+
+	if (sm->info && sm->info->voltage_max_design_uv > 0) {
+		sm->float_uv = sm->info->voltage_max_design_uv;
+		ret = sm5714_set_float_voltage(sm);
+		if (ret)
+			dev_warn(dev, "cannot set float voltage: %d\n", ret);
+		else
+			dev_info(dev, "battery regulation voltage %u mV\n",
+				 sm->float_uv / 1000);
+	}
 
 	sm->last_status = sm5714_get_status(sm);
 	if (sm5714_get_capacity(sm, &sm->last_capacity))
