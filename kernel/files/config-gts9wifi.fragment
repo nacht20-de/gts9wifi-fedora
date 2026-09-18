@@ -288,3 +288,18 @@ CONFIG_VIDEO_DW9808_VCM=y
 CONFIG_NETFILTER_NETLINK_QUEUE=m
 CONFIG_NETFILTER_XT_TARGET_NFQUEUE=m
 CONFIG_NFT_QUEUE=m
+
+# EgisTec EL721 fingerprint sensor (under-display, SM-X710).  Linux only owns
+# the sensor rail and its enable line plus Samsung's non-data ioctl ABI on
+# /dev/esfp0; the signed dualfp TrustZone app does capture, matching and
+# templates.  The QTI TEE transport it needs (CONFIG_QCOMTEE) and the blob
+# loader it loads through are already enabled above.  As a module so the reader
+# can be exercised without a reboot.
+CONFIG_FINGERPRINT_EL721=m
+
+# Samsung K250A secure element (snvm) at i2c 0x23, the embedded SE that
+# HwVault reads its fingerprint credential from; the EL721 userspace stack
+# opens it as /dev/k250a.  Self-contained eSE stack that creates its own i2c
+# client and votes the part's 1.8 V rail (PM8550VS LDO G2) itself.  Module-only
+# for the same reason as the sensor driver above.
+CONFIG_STAR_K250A_LEGO=m

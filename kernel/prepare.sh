@@ -145,6 +145,45 @@ config VIDEO_DW9808_VCM\
 grep -q 'dw9808_vcm.o' drivers/media/i2c/Makefile || \
     echo 'obj-$(CONFIG_VIDEO_DW9808_VCM)	+= dw9808_vcm.o' >> drivers/media/i2c/Makefile
 
+# EgisTec EL721 fingerprint sensor (under-display, secure-world companion).
+# Only the power/reset/metadata half lives in Linux: the sensor's 3.3 V rail and
+# its enable line, plus Samsung's non-data ioctl ABI on /dev/esfp0.  Capture,
+# matching and templates are inside the signed dualfp TrustZone app, so this
+# driver deliberately exposes no frame path.  Built as a module so the reader
+# can be brought up on a running tablet; it registers its own platform device
+# because Samsung's ABL does not tolerate the GPIO description in the DTB.
+cp "$here/files/egis_el721.c" drivers/misc/
+grep -q 'FINGERPRINT_EL721' drivers/misc/Kconfig || sed -i '/^endmenu$/i \
+config FINGERPRINT_EL721\
+\ttristate "EgisTec EL721 fingerprint sensor (secure-world companion)"\
+\tdepends on OF\
+' drivers/misc/Kconfig
+grep -q 'egis_el721.o' drivers/misc/Makefile || \
+    echo 'obj-$(CONFIG_FINGERPRINT_EL721)\t+= egis_el721.o' >> drivers/misc/Makefile
+
+# Samsung K250A secure element (snvm): the embedded SE carrying the credential
+# HwVault uses to derive fingerprint template keys, reached by the EL721
+# userspace stack as /dev/k250a.  The module is a self-contained eSE stack
+# (ISO7816 T=1 protocol layer plus an i2c/spi HAL) that creates its own i2c
+# client: Samsung's DTB leaves both the controller and the part's 1.8 V rail
+# undescribed, so the driver enables qupv3_se10_i2c (i2c@888000) with an
+# of_changeset and votes PM8550VS LDO G2 (cmd-db name "ldog2", 1.8 V) over the
+# public RPMh interface.  Module-only so the secure element can be brought up,
+# and rolled back, on a running tablet.
+mkdir -p drivers/misc/snvm
+cp -r "$here/files/snvm/." drivers/misc/snvm/
+grep -q 'STAR_K250A_LEGO' drivers/misc/Kconfig || sed -i '/^endmenu$/i \
+config STAR_K250A_LEGO\
+\ttristate "Samsung K250A secure element (snvm)"\
+\tdepends on I2C && OF && ARCH_QCOM\
+\
+config SEC_SNVM_WAKELOCK_METHOD\
+\tint "snvm wakelock method"\
+\tdefault 0\
+' drivers/misc/Kconfig
+grep -q 'misc/snvm' drivers/misc/Makefile || \
+    echo 'obj-$(CONFIG_STAR_K250A_LEGO)\t+= snvm/' >> drivers/misc/Makefile
+
 # Kernel release tag must match the rootfs modules (vermagic ABI).
 echo "-gts9wifi" > localversion-gts9wifi
 
