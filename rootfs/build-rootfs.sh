@@ -81,6 +81,12 @@ if [ "$desktop" = "gnome" ]; then
     # image; drop it so the first boot goes straight to the gdm login.
     dnf -y --installroot="$rootfs" --use-host-config -q remove \
         gnome-initial-setup || true
+    # The group also pulls libcamera's qcam demo app.  The port's camera app is
+    # GNOME Snapshot, so drop qcam and its Qt dependency.  Keep
+    # libcamera-tools: its `cam` is the libcamera diagnostic used to verify the
+    # HI1337 sensors and the media graph.
+    dnf -y --installroot="$rootfs" --use-host-config -q remove \
+        libcamera-qcam || true
     # The workstation group pulls the linux-firmware meta as mandatory; this
     # board needs none of it (the device payload plus atheros/qcom cover
     # every consumer), and it is half a gigabyte of dead weight.

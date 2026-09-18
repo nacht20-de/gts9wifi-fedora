@@ -7,7 +7,7 @@
  * component in the stack implements autofocus: the kernel driver exposes no
  * V4L2 autofocus controls, libcamera's simple pipeline has no lens support
  * and its software IPA has no AF algorithm, so camera applications
- * (Snapshot, qcam) never move the lens by themselves.
+ * (Snapshot) never move the lens by themselves.
  *
  * This tool closes the loop in userspace: it streams the raw sensor, sweeps
  * and refines the lens position while measuring an edge-energy focus value,
