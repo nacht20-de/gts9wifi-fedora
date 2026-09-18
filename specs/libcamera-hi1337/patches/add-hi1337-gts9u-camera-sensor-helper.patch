@@ -1,0 +1,55 @@
+Add a CameraSensorHelper for the SK Hynix HI-1337 as found on the Samsung
+Galaxy Tab S9 Wi-Fi (gts9wifi), where the port registers the sensor as
+"hi1337-gts9u".
+
+Without a helper, libcamera's software ISP cannot create one:
+
+    IPASoft: Failed to create camera sensor helper for hi1337-gts9u
+
+which leaves AGC completely inert. The sensor then stays at whatever
+analogue gain it was left at -- in practice the maximum (240, i.e. 16x) --
+producing an extremely noisy image. The IPA's black-level correction is also
+skipped, which shows up as a heavy green cast in the processed output.
+
+The analogue gain register (0x0213, codes 0..240) encodes
+gain = 1 + code / 16, i.e. 1x..16x -- the same scheme libcamera already uses
+for the Hynix HM-1246 -- and the pedestal is 64 at 10 bits, i.e. 4096 scaled
+to the 16-bit value blackLevel_ expects (the convention the IMX219 entry
+uses).
+
+Tested on a Galaxy Tab S9 Wi-Fi: with the helper, AGC actively drives the
+gain instead of leaving it frozen, and the processed output is correctly
+coloured (no green cast).
+
+Apply with: patch -p1 < add-hi1337-gts9u-camera-sensor-helper.patch
+
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -530,6 +530,27 @@
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("hm1246", CameraSensorHelperHm1246)
+ 
++class CameraSensorHelperHi1337 : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperHi1337()
++	{
++		/*
++		 * SK Hynix HI-1337, a 10-bit sensor.  The analogue gain
++		 * register (0x0213, codes 0..240) encodes
++		 * gain = 1 + code / 16, i.e. 1x..16x, the same scheme as the
++		 * Hynix HM-1246.  The pedestal is 64 at 10 bits, i.e. 4096
++		 * scaled to a 16-bit pixel width as blackLevel_ requires.
++		 *
++		 * The gts9wifi port registers this part as "hi1337-gts9u",
++		 * which is the model string the helper factory matches on.
++		 */
++		gain_ = AnalogueGainLinear{ 1, 16, 0, 16 };
++		blackLevel_ = 4096;
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("hi1337-gts9u", CameraSensorHelperHi1337)
++
+ class CameraSensorHelperImx214 : public CameraSensorHelper
+ {
+ public:
