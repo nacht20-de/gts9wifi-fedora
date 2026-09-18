@@ -1,0 +1,77 @@
+#!/bin/bash
+# Launch the gts9wifi EL721 secure owner: the boot-lifetime owner of the global
+# SPL listener and the Keymaster DMA lease.
+#
+# Bringing the SPU up is not enough for the fingerprint TA.  Samsung's keymaster
+# bootstrap needs two things this port does not do on its own:
+#
+#  1. The SPL interrupt listener (QTEE service 87, listener 0xb000) must be
+#     registered BEFORE the first SPU-backed crypto request.  It is what feeds
+#     /dev/qsee_ipc_irq_spss (the IPCC 16:1 rising edge) back into QTEE, and a
+#     listener registered afterwards leaves HwVault answering
+#     "strongbox_unwrap err -40" / cache status 9960.
+#
+#  2. The 20 KiB keymaster control area must come from the SPU/TrustZone shared
+#     carveout published as /dev/dma_heap/qcom,secure-sp-tz.  That heap is
+#     registered by the qcomtee driver (kernel/patches/qcomtee-add-spss-shared-
+#     heap.patch) from the spu-tz-shared-region reserved-memory node, and the
+#     range is assigned to CP_SPSS_SP_SHARED so both TrustZone and the SPU can
+#     see it.
+#
+# The owner then runs the measured stock sequence -- keymaster64 lookup, 0x200,
+# 0x207, 0x20d DMA bind, 0x215, optional SetVersion 0x3121 (status -40 is
+# expected and ignored), modern CBOR Configure 0x2116 -- and restores HwVault
+# credentials 0/1/11, printing SECURE_READY only when the cache acknowledgements
+# are positive.
+#
+# Once it has lent memory to the TA the process must NOT be stopped or restarted:
+# secure world may still hold the DMA address, and the reference port's rule is
+# that only a full reboot releases it.  So this script starts it once per boot
+# behind an exclusive marker and never restarts it.
+set -u
+
+RUNTIME=${RUNTIME:-/home/fedora/fp-probe/fp}
+OWNER="$RUNTIME/el721-secure-owner"
+FIRMWARE=/usr/lib/firmware/gts9u/fingerprint
+LOG=${LOG:-/var/log/gts9u-fingerprint-secure.log}
+MARKER_DIR=/run/gts9u-fingerprint-secure
+
+if [ "$(id -u)" != 0 ]; then
+    echo "must run as root" >&2
+    exit 77
+fi
+if [ ! -x "$OWNER" ]; then
+    echo "missing $OWNER (build the secure owner first)" >&2
+    exit 1
+fi
+if [ ! -d "$FIRMWARE" ]; then
+    echo "missing $FIRMWARE (hwvault/skeymast/dualfp TA segments)" >&2
+    exit 1
+fi
+if [ ! -e /dev/dma_heap/qcom,secure-sp-tz ]; then
+    echo "missing /dev/dma_heap/qcom,secure-sp-tz (modprobe qcomtee)" >&2
+    exit 1
+fi
+if [ ! -e /dev/qsee_ipc_irq_spss ]; then
+    echo "missing /dev/qsee_ipc_irq_spss (modprobe qcom_spss_irq)" >&2
+    exit 1
+fi
+if [ ! -e /dev/tee0 ]; then
+    echo "missing /dev/tee0 (modprobe qcomtee)" >&2
+    exit 1
+fi
+
+install -d -m 0755 "$MARKER_DIR"
+# The owner refuses to start without this marker; it is created once per boot.
+: > "$MARKER_DIR/attempt"
+
+if [ -f "$MARKER_DIR/pid" ] && kill -0 "$(cat "$MARKER_DIR/pid")" 2>/dev/null; then
+    echo "secure owner already running: $(cat "$MARKER_DIR/pid")"
+    exit 0
+fi
+
+: > "$LOG"
+setsid "$OWNER" --boot >"$LOG" 2>&1 </dev/null &
+pid=$!
+echo "$pid" > "$MARKER_DIR/pid"
+echo "started secure owner pid $pid (log: $LOG)"

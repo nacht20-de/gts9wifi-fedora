@@ -12,7 +12,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 
 cd "$tree"
 
-# The 17 port patches (abuild applied all *.patch with -p1).
+# The port patches (abuild applied all *.patch with -p1).
 for p in "$here"/patches/*.patch; do
     patch -p1 --forward < "$p"
 done
