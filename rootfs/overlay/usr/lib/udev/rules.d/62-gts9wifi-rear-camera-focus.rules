@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+#
+# The rear camera's DW9808 VCM lens has no autofocus anywhere in the stack: the
+# kernel driver (kernel/files/dw9808_vcm.c) exposes only the manual
+# V4L2_CID_FOCUS_ABSOLUTE control, libcamera 0.7.1's simple pipeline neither
+# instantiates a CameraLens nor ships any AF algorithm in its software IPA, and
+# Megapixels only autofocuses through a hardware AF-trigger control that this
+# driver does not provide.  Applications therefore never move the lens, and it
+# keeps whatever position was last set by hand.
+#
+# Pin a sane default instead.  The value is the middle of the only in-focus
+# range ever measured on this board: a contrast-detection sweep against a close,
+# textured subject peaked at focus_absolute 307-409, roughly a 15% edge-energy
+# swing, so 384 sits inside that plateau.
+#
+# This is a fixed focus, not autofocus: a close-up at a very different distance
+# will be soft.  Retune with tools/gts9wifi-autofocus.c, which sweeps the lens
+# against a live sensor stream and leaves it at the sharpest position found.
+#
+# The dw9808 driver caches the position while the camera is idle and ramps back
+# to it when the sensor starts streaming, so setting it once at boot is enough.
+ACTION=="add|change", SUBSYSTEM=="video4linux", ATTR{name}=="dw9808-vcm*", \
+    RUN+="/usr/bin/v4l2-ctl -d /dev/%k --set-ctrl=focus_absolute=384"
