@@ -1663,9 +1663,12 @@
 
 /*
  * Camera — rear 13 MP HI1337 + DW9808 autofocus, front 12 MP HI1337.
- * Sensor addresses are the CamX default (rear 0x21 on CCI0 bus 1,
- * front 0x20 on CCI1 bus 1, VCM 0x0c on CCI1 bus 0) and verified
- * against the downstream eeprom slave-addr encodings.
+ * Both sensors answer at the same 7-bit address 0x21 (they sit on
+ * different CCI buses): rear on CCI0 bus 1, front on CCI1 bus 1, with
+ * the VCM at 0x0c on CCI1 bus 0.  The front module's EEPROM is the
+ * device at 0x20 on CCI1 bus 1 in the stock tree (qcom,eeprom20,
+ * slave-addr 0x40), which is what first made 0x20 look like the sensor
+ * address; see the hi1337_front node for the address-sweep evidence.
  *
  * Samsung's L11B rail carries both display VDD and the front camera
  * digital core (pm_humu_l11); see the L11B regulator comment above.
@@ -1685,13 +1688,13 @@
 			};
 		};
 
-		/*
-		 * port@4 (front CSIPHY4) disabled: front sensor I2C ENXIO at
-		 * 0x20 — blocks the camss async notifier from completing,
-		 * which prevents the rear camera from appearing in the media
-		 * graph.  Remove this comment and the port@4 block above once
-		 * the front power/reset/MCLK is debugged.
-		 */
+		port@4 {
+			csiphy4_hi1337_front_ep: endpoint {
+				clock-lanes = <4>;
+				data-lanes = <0 1 2 3>;
+				remote-endpoint = <&hi1337_front_ep>;
+			};
+		};
 	};
 };
 
@@ -1754,13 +1757,18 @@
 };
 
 &cci1_i2c1 {
-	hi1337_front: camera@20 {
+	hi1337_front: camera@21 {
 		compatible = "hynix,hi1337-gts9u-front";
-		/* Stock CamX slaveAddress 0x40 is a 7-bit Linux address of 0x20. */
-		reg = <0x20>;
-		/* I2C identity reads ENXIO — see port@4 comment. Disabled until
-		 * the front module power/reset/MCLK is debugged. */
-		status = "disabled";
+		/*
+		 * The front HI1337 answers at 7-bit 0x21, the same sensor
+		 * address as the rear module (different CCI bus).  Stock's
+		 * slaveAddress 0x40 / qcom,eeprom20 reg 0x20 on cci1 master 1
+		 * is the module EEPROM, not the sensor: probing 0x20 NAKs.
+		 * Verified by a full 0x08..0x77 address sweep on the front bus
+		 * with the sensor powered and MCLK4 running, where only 0x21
+		 * returned model 0x1337 / vendor 0x2000.
+		 */
+		reg = <0x21>;
 		clocks = <&camcc CAM_CC_MCLK4_CLK>;
 		assigned-clocks = <&camcc CAM_CC_MCLK4_CLK>;
 		assigned-clock-rates = <19200000>;
@@ -1776,8 +1784,24 @@
 		pinctrl-1 = <&cam4_sleep>;
 		pinctrl-names = "default", "sleep";
 		orientation = <0>;
-		rotation = <270>;
+		/*
+		 * V4L2's `rotation` / V4L2_CID_CAMERA_SENSOR_ROTATION must be 0 for
+		 * this module, same as the rear one.  Measured on this stack
+		 * (GNOME Snapshot's front viewfinder): 0 -> upright, 180 ->
+		 * upside down, 270 -> 90 deg anticlockwise, i.e. the value is
+		 * applied clockwise as-is.  Stock's `sensor-position-roll` (rear
+		 * 90, front 270) does not map onto this property - the rear node
+		 * needs 0 despite stock saying 90, and 270 here is wrong.
+		 */
+		rotation = <0>;
 
-		/* port/endpoint commented: references the removed camss port@4. */
+		port {
+			hi1337_front_ep: endpoint {
+				clock-lanes = <4>;
+				data-lanes = <0 1 2 3>;
+				link-frequencies = /bits/ 64 <360200000>;
+				remote-endpoint = <&csiphy4_hi1337_front_ep>;
+			};
+		};
 	};
 };
