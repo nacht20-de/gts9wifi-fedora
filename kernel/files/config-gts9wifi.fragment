@@ -303,3 +303,16 @@ CONFIG_FINGERPRINT_EL721=m
 # client and votes the part's 1.8 V rail (PM8550VS LDO G2) itself.  Module-only
 # for the same reason as the sensor driver above.
 CONFIG_STAR_K250A_LEGO=m
+
+# Secure-processor (SPSS/SPU) stack: the Keymaster/StrongBox services the
+# fingerprint stack needs run on Samsung's SPU, and upstream has no driver for
+# it.  Ported from the sibling Galaxy Tab S9 Ultra port as modules.  The SPU's
+# firmware region and shared-memory regions are already reserved by
+# sm8550.dtsi, and qcom_spss publishes its own DT node, so no DTS change is
+# needed.  qcom_sp_hlos_heap is the DMA-buf heap the SPU shares buffers through.
+CONFIG_QCOM_SPSS=m
+CONFIG_QCOM_GLINK_SPSS=m
+CONFIG_QCOM_SPCOM=m
+CONFIG_QCOM_SPSS_UTILS=m
+CONFIG_QCOM_SPSS_IRQ=m
+CONFIG_DMABUF_HEAPS_SP_HLOS=m

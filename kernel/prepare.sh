@@ -184,6 +184,78 @@ config SEC_SNVM_WAKELOCK_METHOD\
 grep -q 'misc/snvm' drivers/misc/Makefile || \
     echo 'obj-$(CONFIG_STAR_K250A_LEGO)\t+= snvm/' >> drivers/misc/Makefile
 
+# Secure-processor (SPSS/SPU) stack.  The fingerprint stack's Keymaster/StrongBox
+# services run on Samsung's secure processor, for which upstream has no driver
+# at all; this is the sibling Galaxy Tab S9 Ultra port's stack, ported as
+# modules so the SPU can be brought up (and rolled back) on a running tablet.
+# The SPU firmware region and both SPU shared-memory regions are already
+# reserved by sm8550.dtsi, and qcom_spss publishes its own DT node, so no board
+# DTS change is needed.  Pieces:
+#   qcom_spss          PAS remoteproc: boots spss1p.mdt (PAS id 14) and creates
+#                      the spcom/spss_utils child devices
+#   qcom_glink_spss    GLINK transport the remoteproc links against
+#   spcom              /dev/spcom, the channel to the SPU
+#   spss_utils         /dev/spss_utils, SPU provisioning/event interface
+#   qcom_spss_irq      /dev/qsee_ipc_irq_spss for the SPL listener
+#                      (IPCC client 16, signal 1, rising edge)
+#   qcom_sp_hlos_heap  DMA-buf heap the SPU shares buffers through
+cp "$here/files/spu/qcom_spss.c" drivers/remoteproc/
+cp "$here/files/spu/qcom_glink_spss.c" drivers/rpmsg/
+cp "$here/files/spu/spcom.c" "$here/files/spu/spss_utils.c" \
+   "$here/files/spu/qcom_spss_irq.c" drivers/soc/qcom/
+cp "$here/files/spu/qcom_sp_hlos_heap.c" drivers/dma-buf/heaps/
+mkdir -p include/linux/remoteproc
+cp "$here/files/spu/include/linux/remoteproc/qcom_spss.h" include/linux/remoteproc/
+cp "$here/files/spu/include/uapi/linux/spcom.h" \
+   "$here/files/spu/include/uapi/linux/spss_utils.h" include/uapi/linux/
+
+grep -q 'QCOM_SPSS$' drivers/remoteproc/Kconfig || sed -i '/^endmenu$/i \
+config QCOM_SPSS\
+\ttristate "Qualcomm Secure Processor Subsystem (SPSS) remoteproc"\
+\tdepends on ARCH_QCOM && REMOTEPROC && QCOM_SCM\
+' drivers/remoteproc/Kconfig
+grep -q 'qcom_spss.o' drivers/remoteproc/Makefile || \
+    echo 'obj-$(CONFIG_QCOM_SPSS)\t+= qcom_spss.o' >> drivers/remoteproc/Makefile
+
+grep -q 'QCOM_GLINK_SPSS' drivers/rpmsg/Kconfig || sed -i '/^endmenu$/i \
+config QCOM_GLINK_SPSS\
+\ttristate "Qualcomm GLINK SPSS transport"\
+\tdepends on RPMSG_QCOM_GLINK\
+' drivers/rpmsg/Kconfig
+grep -q 'qcom_glink_spss.o' drivers/rpmsg/Makefile || \
+    echo 'obj-$(CONFIG_QCOM_GLINK_SPSS)\t+= qcom_glink_spss.o' >> drivers/rpmsg/Makefile
+
+grep -q 'QCOM_SPCOM' drivers/soc/qcom/Kconfig || sed -i '/^endmenu$/i \
+config QCOM_SPCOM\
+\ttristate "Qualcomm Shared Processor Communication (SPCOM)"\
+\tdepends on ARCH_QCOM\
+\
+config QCOM_SPSS_UTILS\
+\ttristate "Qualcomm SPSS provisioning and event interface"\
+\tdepends on ARCH_QCOM\
+\
+config QCOM_SPSS_IRQ\
+\ttristate "Qualcomm SPSS secure-processor IRQ notification"\
+\tdepends on ARCH_QCOM\
+' drivers/soc/qcom/Kconfig
+grep -q 'spcom.o' drivers/soc/qcom/Makefile || \
+    echo 'obj-$(CONFIG_QCOM_SPCOM)\t+= spcom.o' >> drivers/soc/qcom/Makefile
+grep -q 'spss_utils.o' drivers/soc/qcom/Makefile || \
+    echo 'obj-$(CONFIG_QCOM_SPSS_UTILS)\t+= spss_utils.o' >> drivers/soc/qcom/Makefile
+grep -q 'qcom_spss_irq.o' drivers/soc/qcom/Makefile || \
+    echo 'obj-$(CONFIG_QCOM_SPSS_IRQ)\t+= qcom_spss_irq.o' >> drivers/soc/qcom/Makefile
+
+# drivers/dma-buf/heaps/Kconfig is included as a fragment and has no endmenu,
+# so this symbol is appended rather than inserted.
+grep -q 'DMABUF_HEAPS_SP_HLOS' drivers/dma-buf/heaps/Kconfig || cat >> drivers/dma-buf/heaps/Kconfig <<'SP_HLOS_KCONFIG'
+
+config DMABUF_HEAPS_SP_HLOS
+	tristate "Qualcomm HLOS/SPSS shared DMA-BUF heap"
+	depends on DMABUF_HEAPS
+SP_HLOS_KCONFIG
+grep -q 'qcom_sp_hlos_heap.o' drivers/dma-buf/heaps/Makefile || \
+    echo 'obj-$(CONFIG_DMABUF_HEAPS_SP_HLOS)\t+= qcom_sp_hlos_heap.o' >> drivers/dma-buf/heaps/Makefile
+
 # Kernel release tag must match the rootfs modules (vermagic ABI).
 echo "-gts9wifi" > localversion-gts9wifi
 
