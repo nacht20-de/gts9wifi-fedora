@@ -59,10 +59,11 @@ echo ">>> WCN6855 Wi-Fi firmware override (IOE 04866.5 mainline set + 5 GHz RX f
 # (WLAN.HSP.1.1-04866.5-QCAHSPSWPL_V1_V2_SILICONZ_IOE-1, from CodeLinaro)
 # is the reliable family on this unit; Samsung's own amss20 crashes ath11k
 # (MHI_CB_EE_RDDM).  The generic linux-firmware board-2.bin leaves 5 GHz RX
-# weak (KNOWN-ISSUES.md #7); the fix is to swap the matched payload for the
-# LE_X13S device-tuned board file (same 0108 subsystem), which restores ~47 dB
-# (the Wi-Fi page in the wiki, tested 2026-09-15).  Stage the IOE amss/m3 and the fixed
-# board-2.bin if they differ from the stock linux-firmware backups; else no-op.
+# weak (the known-issues page in the wiki, issue 7); the fix is to swap the
+# matched payload for the LE_X13S device-tuned board file (same 0108
+# subsystem), which restores ~47 dB (the Wi-Fi page in the wiki, tested
+# 2026-09-15).  Stage the IOE amss/m3 and the fixed board-2.bin if they differ
+# from the stock linux-firmware backups; else no-op.
 wfx="$assets/firmware-overrides/usr/lib/firmware/ath11k/WCN6855/hw2.1"
 mkdir -p "$wfx"
 wfstw=0
