@@ -50,7 +50,7 @@ probe, ambient-light sensing over D-Bus, and password login.
 
 | Working | Partial / in progress |
 |---|---|
-| Display (2560×1600 AMOLED), touchscreen, double-tap-to-wake | S Pen input is detected but erratic |
+| Display (2560×1600 AMOLED), touchscreen, double-tap-to-wake | S Pen tilt sensor |
 | Wi-Fi (5 GHz included), Bluetooth | Charging bypass on 25 W+ adapters — needs a desktop patch |
 | Speakers + DMIC capture, with speaker-protection DSP firmware | Under-display fingerprint — secure processor is up, blocked at the TEE |
 | Battery/charging, Type-C PD, USB-C DisplayPort alt-mode | `/vendor` (Android `super`) is not mounted |
