@@ -1,12 +1,21 @@
 [Unit]
 Description=Keep /tmp/.X11-unix root-owned for XWayland ownership checks
-# XWayland requires /tmp/.X11-unix to be owned by root or the session user;
-# whatever removes and recreates it per-uid mid-boot makes every other uid's
-# gnome-shell abort.  This guard re-roots it the instant it reappears.
-
-[Unit]
-StartLimitIntervalSec=0
+# The guard itself is /usr/libexec/gts9wifi-x11-dir-fix.
+#
+# RemainAfterExit is what stops the runaway: the path unit uses
+# PathExists=/tmp/.X11-unix, and a oneshot service that exits immediately never
+# counts as active, so the path unit re-armed and re-triggered the instant the
+# service finished -- measured on the tablet at about 44 restarts per second,
+# 16k in a few minutes, and that busy loop alone made the session unusable.
+# Staying active after the first run lets the path unit fire once, when the
+# directory first appears, and then leave it alone.
+#
+# The helper is also idempotent, so a later re-run is harmless either way.
+# StartLimit* is only a backstop against a future runaway.
+StartLimitIntervalSec=60
+StartLimitBurst=20
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'chown root:root /tmp/.X11-unix 2>/dev/null || true; chmod 1777 /tmp/.X11-unix 2>/dev/null || true'
+RemainAfterExit=yes
+ExecStart=/usr/libexec/gts9wifi-x11-dir-fix

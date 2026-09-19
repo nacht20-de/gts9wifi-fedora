@@ -1,0 +1,24 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# XWayland requires /tmp/.X11-unix to be owned by root or by the session user;
+# whatever removes and recreates it per-uid mid-boot makes every other uid's
+# gnome-shell abort, so this guard re-roots it the instant it reappears.
+#
+# The guard is triggered by a PathExists= watch on that directory, and chown and
+# chmod both update the directory's ctime, which re-arms the watch.  Chowning
+# unconditionally therefore re-triggers itself: measured on the tablet it ran at
+# about 44 times per second, 16k times in a few minutes, and that busy loop on
+# its own makes the session unusable.  Check first and touch nothing when the
+# ownership and mode are already correct, so the loop stops after one pass.
+#
+# The check lives here rather than in the unit's ExecStart because systemd
+# expands %-specifiers in unit files, so an inline `stat -c "%u %a"` would be
+# rewritten to the service user and the machine architecture.
+set -u
+
+[ -d /tmp/.X11-unix ] || exit 0
+[ "$(stat -c '%u %a' /tmp/.X11-unix 2>/dev/null)" = "0 1777" ] && exit 0
+
+chown root:root /tmp/.X11-unix 2>/dev/null || true
+chmod 1777 /tmp/.X11-unix 2>/dev/null || true

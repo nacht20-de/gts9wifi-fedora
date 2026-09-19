@@ -7,12 +7,46 @@
 # cannot reconnect an existing QMI client after SSC is power-collapsed, so the
 # proxy must then be restarted.  The board's Mutter package deliberately
 # reclaims accelerometer access whenever a new SensorProxy owner appears.
-set -eu
+#
+# The hooks are part of systemd-suspend.service, so the whole post phase runs
+# while suspend.target still has its start job queued, and restarting
+# hexagonrpcd-adsp-sensorspd (which conflicts with suspend.target) is refused
+# outright:
+#
+#   Transaction for hexagonrpcd-adsp-sensorspd.service/restart is destructive
+#   (suspend.target has 'start' job queued, but 'stop' is included in
+#    transaction)
+#
+# ActiveState cannot be used to detect the end of the transaction: a job that is
+# queued but not yet executed leaves the unit reading 'inactive', so both
+# is-active and ActiveState sail straight through and hit the refusal.  Wait for
+# the pending job itself to disappear, then retry the restart until it takes.
+# With the old `set -eu` a refusal like this killed the helper before it ever
+# probed SSC (status=4/NOPERMISSION).
+set -u
+
+i=0
+while [ "$i" -lt 90 ]; do
+	if ! systemctl list-jobs --no-legend 2>/dev/null |
+	     grep -qE 'suspend\.target|systemd-suspend\.service'; then
+		break
+	fi
+	sleep 1
+	i=$((i + 1))
+done
 
 # A service may still be marked active after a platform PM test while its
 # FastRPC/QMI client is stale.  A restart is cheap and gives SSC one clean
 # attachment both at boot and after a real resume.
-systemctl restart hexagonrpcd-adsp-sensorspd.service
+i=0
+while [ "$i" -lt 30 ]; do
+	if err=$(systemctl restart hexagonrpcd-adsp-sensorspd.service 2>&1); then
+		break
+	fi
+	i=$((i + 1))
+	[ "$i" = 1 ] && echo "gts9wifi-sensors-resume: sensorspd restart deferred until the suspend transaction ends: $err" >&2
+	sleep 1
+done
 
 attempt=0
 while [ "$attempt" -lt 45 ]; do

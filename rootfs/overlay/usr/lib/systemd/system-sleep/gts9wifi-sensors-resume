@@ -5,6 +5,14 @@
 # instead of anonymous timers: a following suspend can then cancel an
 # in-flight SSC discovery before sensorspd is stopped.  Otherwise rapid lid
 # cycles leave several helpers racing to restart the same FastRPC protection.
+#
+# This hook must live in /usr/lib/systemd/system-sleep/.  systemd 259 (Fedora
+# 44) only reads that directory -- its binary contains no
+# /etc/systemd/system-sleep path at all -- so the copy this port used to ship
+# under /etc/systemd/system-sleep/ was silently ignored and the sensor chain
+# stayed dead for the rest of the session after every resume.  Verified on the
+# tablet with one probe hook in each directory: the /usr/lib one ran for both
+# 'pre' and 'post', the /etc one never ran.
 
 case "$1" in
 	pre)
