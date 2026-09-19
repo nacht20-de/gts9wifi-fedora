@@ -224,8 +224,31 @@ if [ -d "$assets/firmware-overrides" ]; then
     # the firmware payload.
     cp -a "$assets/firmware-overrides/." "$rootfs/"
 else
-    echo "    (no firmware-overrides/ in local-assets: shipping linux-firmware BT blobs)" >&2
+    echo "    (no firmware-overrides/ in local-assets: staging the public set below)" >&2
 fi
+
+echo ">>> Staging the device-independent firmware overrides"
+# CI cannot run rootfs/fetch-local-assets.sh (it needs a running tablet), and
+# while that was the only place the non-repo firmware was staged, every CI
+# image silently shipped linux-firmware's generic blobs and lost the CS35L45
+# speaker protection (#17), the iris VPU firmware (#16) and the validated
+# WCN6855 Wi-Fi set with the 5 GHz RX BDF (#7).  The script stages all three
+# from pinned public sources (or relocates them out of the firmware payload)
+# and is a no-op over a tree fetch-local-assets.sh already populated.
+#
+# It fails the build when a piece cannot be staged, because each one is a
+# silent-regression fix and the UCM sets the per-amp volume to 428 assuming the
+# speaker-protection firmware is loaded.  GTS9_SKIP_PUBLIC_FIRMWARE=1 builds
+# offline and reports what was skipped instead.
+#
+# Only the board-2.bin container edit needs python3 (tools/bdftool.py), and the
+# Fedora base image does not ship it.
+if ! command -v python3 >/dev/null 2>&1; then
+    echo ">>> Installing python3 in the build container (Wi-Fi BDF fix)"
+    dnf -y install python3
+fi
+"$script_dir/stage-public-firmware.sh" "$rootfs"
+
 if [ -d "$assets/modules/$kver" ]; then
     mkdir -p "$rootfs/usr/lib/modules"
     cp -a "$assets/modules/$kver" "$rootfs/usr/lib/modules/"

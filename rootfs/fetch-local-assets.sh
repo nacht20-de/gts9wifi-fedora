@@ -5,6 +5,12 @@
 #
 # Requires: the tablet running pmOS attached via USB (172.16.42.1) and the
 # port kit extracted at ../port-kit (see the gts9wifi Fedora port kit page in the wiki).
+#
+# Note: the device-independent overrides staged below (Cirrus CS35L45, the VPU
+# blob, the IOE Wi-Fi set and the 5 GHz BDF) are also staged at build time by
+# rootfs/stage-public-firmware.sh, which is what CI uses because it needs no
+# tablet.  The copies here exist so local-assets/ can be pre-staged for a
+# fully offline build; a URL or checksum change belongs in both.
 
 set -euo pipefail
 
