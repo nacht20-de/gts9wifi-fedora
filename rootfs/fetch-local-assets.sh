@@ -148,6 +148,41 @@ for spec in \
 done
 echo "    staged 2 Cirrus CS35L45 speaker-protection file(s) in firmware-overrides/ (issue 17)"
 
+# VPU / iris video-decoder firmware (issue 16).  The driver asks for exactly
+# this name -- the DT's &iris firmware-name -- and fails with ENOENT without
+# it, so /dev/video17 and /dev/video18 register but every decode attempt logs
+# "Direct firmware load for qcom/vpu/vpu30_4v.mbn failed with error -2" and the
+# VPU never boots.  linux-firmware ships a whole family of vpu30_*_s* blobs but
+# not this one, and the CI firmware payload does not carry it either, so the
+# public copy is the only route that avoids unpacking the super partition with
+# lpunpack.  It is Samsung's signed image, which is what this device's
+# TrustZone accepts (the blob is PAS-authenticated, so a generic one is no use).
+#
+# Fatal on failure, like the Cirrus block above: without it the port silently
+# falls back to software decode, which is the class of quiet regression this
+# port keeps hitting (the inert tmpfiles entries, the dropped file
+# capabilities).  The blob is proprietary, so it cannot be committed.
+vpu="$assets/firmware-overrides/usr/lib/firmware/qcom/vpu"
+mkdir -p "$vpu"
+vpu_base="${GTS9_VPU_BASE:-https://raw.githubusercontent.com/Azkali/gts9wifi-firmware/main/qcom/sm8550/gts9wifi}"
+for spec in \
+    "vpu30_4v.mbn:431e976f95e3306ad9473e88c1c83795fce8de5811a4c7203c27e498f8aa3787"; do
+    f="${spec%%:*}"; want="${spec##*:}"
+    if ! curl -fsSL --max-time 120 -o "$vpu/$f" "$vpu_base/$f"; then
+        echo "    FAILED to download $f from $vpu_base" >&2
+        echo "    The iris decoder needs it at /lib/firmware/qcom/vpu/$f, or video" >&2
+        echo "    decode silently falls back to software.  Put the file in" >&2
+        echo "    $vpu/ and re-run (GTS9_VPU_BASE overrides the source)." >&2
+        exit 1
+    fi
+    got="$(sha256sum "$vpu/$f" | cut -d' ' -f1)"
+    if [ "$got" != "$want" ]; then
+        echo "    FAILED checksum for $f: got $got want $want" >&2
+        exit 1
+    fi
+done
+echo "    staged 1 VPU/iris video-decoder firmware file in firmware-overrides/ (issue 16)"
+
 echo ">>> known-good SD boot files (from port kit)"
 cp -av "$port_kit/known-good-sd-boot/." "$assets/boot-files/"
 
