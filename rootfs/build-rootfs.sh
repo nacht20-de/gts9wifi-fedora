@@ -192,6 +192,17 @@ useradd --root "$rootfs" -r -g fastrpc -s /usr/sbin/nologin -d / fastrpc
 echo ">>> Applying device overlay"
 cp -a "$repo_dir/rootfs/overlay/." "$rootfs/"
 
+# The overlay ships a gschema override that enables the port's own Shell
+# extension (gnome-gts9wifi) by default, which only takes effect once the
+# schema cache is rebuilt.  Recompiling is cheap and also repairs the cache if
+# anything else dropped a schema in.
+if command -v glib-compile-schemas >/dev/null 2>&1; then
+    echo ">>> Rebuilding the GSettings schema cache"
+    glib-compile-schemas "$rootfs/usr/share/glib-2.0/schemas"
+else
+    echo "    (glib-compile-schemas not found: the gnome-gts9wifi extension will not be enabled by default)" >&2
+fi
+
 echo ">>> Injecting local assets"
 if [ -f "$firmware_tar" ]; then
     tar xzf "$firmware_tar" -C "$rootfs"

@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+#
+# Ship this port's own Shell extension enabled, so a fresh image has the device
+# controls available without the user having to find and enable it by hand.
+# This only replaces the schema default: once a user changes
+# enabled-extensions in dconf their own list wins.
+#
+# Override files use the key file format, not the XML of the schema itself.
+[org.gnome.shell]
+enabled-extensions = ['gnome-gts9wifi@tabs9linux']

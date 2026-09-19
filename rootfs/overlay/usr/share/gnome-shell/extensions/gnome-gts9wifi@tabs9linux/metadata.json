@@ -1,0 +1,7 @@
+{
+  "uuid": "gnome-gts9wifi@tabs9linux",
+  "name": "gnome-gts9wifi",
+  "description": "Device-specific controls for the Galaxy Tab S9 Wi-Fi (SM-X710) Fedora port. Adds its own settings page, currently for double-tap-to-wake.",
+  "shell-version": ["49", "50"],
+  "version": 1
+}

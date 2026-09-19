@@ -1,0 +1,15 @@
+[Unit]
+Description=Apply the saved device-specific controls (double tap to wake)
+# Before the display manager, so the wake gesture is armed at the login screen
+# as well as in a session: a suspended tablet is most likely to be woken while
+# nobody is logged in.
+Before=display-manager.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/gts9wifi-device-control apply
+
+[Install]
+WantedBy=multi-user.target
