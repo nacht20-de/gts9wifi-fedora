@@ -21,6 +21,12 @@
 # would move the ramdisk and brick the boot image.  Padding keeps every offset
 # byte-identical, so neither header needs rewriting at all.
 #
+# vendor_boot is patched first, and a missing DTB is never fatal: the kernel
+# section of this port's boot image is padded, so its appended DTB is followed
+# by a few zero bytes and does not end exactly at ksize, and an image may carry
+# its DTB in vendor_boot only.  Aborting on the boot image would leave the DTB
+# ABL actually loads untouched.
+#
 # Ordered after gts9wifi-bt-provision: that script only rewrites the blob when
 # the address does not already match, so letting it go first means it never
 # compacts away the padding on a later boot.
@@ -138,32 +144,51 @@ def patch_dtb(dtb):
     return bytes(out)
 
 
+def appended_dtbs(kernel):
+    """Offsets and lengths of the FDT blobs appended to a kernel section.
+
+    The build pads the section, so the appended DTB need not end exactly at
+    ksize.  Candidates come back tail-first; the appended DTB is the last one.
+    """
+    found = []
+    end = len(kernel)
+    while True:
+        off = kernel.rfind(FDT_MAGIC, 0, end)
+        if off < 0:
+            return found
+        total = struct.unpack_from('>I', kernel, off + 4)[0]
+        if 8 <= total <= len(kernel) - off:
+            found.append((off, total))
+        end = off
+
+
 def reclaim_boot():
+    """Patch the DTB appended to the kernel in boot.  A missing DTB is not
+    fatal: such an image carries its DTB in vendor_boot, which is patched
+    separately, and the padding after the blob is left alone."""
     with open(BOOT, 'r+b') as part:
         head = part.read(PAGE)
         if head[:8] != b'ANDROID!':
-            sys.exit('boot: bad magic')
+            print('boot: not an ANDROID! image, skipped')
+            return False
         ksize = struct.unpack_from('<I', head, 8)[0]
         part.seek(PAGE)
         kernel = part.read(ksize)
-        # the appended DTB is the tail of the kernel section
-        off = ksize
-        while True:
-            off = kernel.rfind(FDT_MAGIC, 0, off)
-            if off < 0:
-                sys.exit('boot: no appended dtb')
-            if off + struct.unpack_from('>I', kernel, off + 4)[0] == ksize:
-                break
-        dtb = patch_dtb(kernel[off:])
-        if dtb is None:
-            return False
-        if len(dtb) != ksize - off:
-            sys.exit('boot: dtb envelope changed, refusing to write')
-        part.seek(PAGE + off)
-        part.write(dtb)
-        part.flush()
-        os.fsync(part.fileno())
-    return True
+        candidates = appended_dtbs(kernel)
+        for off, total in candidates:
+            dtb = patch_dtb(kernel[off:off + total])
+            if dtb is None:
+                continue
+            if len(dtb) != total:
+                sys.exit('boot: dtb envelope changed, refusing to write')
+            part.seek(PAGE + off)
+            part.write(dtb)
+            part.flush()
+            os.fsync(part.fileno())
+            return True
+        print('boot: no appended DTB, skipped' if not candidates
+              else 'boot: appended DTB already reclaimed')
+        return False
 
 
 def reclaim_vendor_boot():
@@ -206,8 +231,10 @@ def main():
         if all(os.path.exists(p) for p in (BOOT, VENDOR_BOOT)):
             break
         time.sleep(0.1)
-    changed = reclaim_boot()
-    changed |= reclaim_vendor_boot()
+    # vendor_boot first: it holds the DTB ABL loads, so it must not depend on
+    # the boot image being in the expected shape.
+    changed = reclaim_vendor_boot()
+    changed |= reclaim_boot()
     if changed:
         print('reserved-memory reclaimed in the boot DTBs; reboot to apply')
     elif not live_reclaimed():
