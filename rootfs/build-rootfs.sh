@@ -210,13 +210,16 @@ else
     missing_assets+=("firmware.tar.gz (Wi-Fi/BT/ADSP/audio blobs: run rootfs/fetch-local-assets.sh)")
 fi
 if [ -d "$assets/firmware-overrides" ]; then
-    echo ">>> Applying firmware overrides (Samsung WCN6855 BT NVM/rampatch + IOE Wi-Fi set)"
+    echo ">>> Applying firmware overrides (BT NVM/rampatch + IOE Wi-Fi set + CS35L45 speaker protection)"
     # Replaces the linux-firmware BT blobs with Samsung's device-tuned ones
     # (hpnv21g.bin + hpbtfw21.tlv): without them BT traffic lags under
     # 2.4GHz Wi-Fi activity (see the known-issues page in the wiki, issue 3).  May also carry
     # the WCN6855 IOE 04866.5 amss/m3 that mainline runs best on, plus the
     # board-2.bin with the LE_X13S payload that restores 5 GHz RX
-    # (2.4GHz/5GHz fixes, see #7 and the Wi-Fi page in the wiki).
+    # (2.4GHz/5GHz fixes, see #7 and the Wi-Fi page in the wiki), and the
+    # Cirrus CS35L45 speaker-protection firmware (cirrus/) that lets the DSP
+    # limiter bound cone excursion, which is what allows the per-amp volume
+    # above the old -19 dB cap (#17).
     # Applied last so it wins over both the dnf linux-firmware package and
     # the firmware payload.
     cp -a "$assets/firmware-overrides/." "$rootfs/"

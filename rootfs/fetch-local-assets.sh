@@ -106,6 +106,48 @@ else
     echo "    staged IOE 04866.5 amss/m3 + 5 GHz-fixed board-2.bin in firmware-overrides/ (reliable mainline Wi-Fi set)"
 fi
 
+echo ">>> Cirrus CS35L45 speaker-protection firmware (issue 17)"
+# Mainline's wm_adsp loads cirrus/<part>-dsp1-spk-prot.{wmfw,bin} for the
+# CS35L45's speaker-protection DSP (cs35l45.c sets dsp->fw =
+# WM_ADSP_FW_SPK_PROT).  linux-firmware ships no cs35l45 blobs at all, so
+# without these the DSP stays empty and nothing bounds cone excursion in
+# hardware -- which is why the UCM used to hold the per-amp volume ~19 dB
+# below full scale.
+#
+# The UCM now sets 428 (-7.25 dB) *on the assumption that this protection is
+# present*, so a failure here is fatal rather than a warning: raising the
+# volume without the limiter is the one combination that can damage the
+# speakers.
+#
+# Deliberately NOT staged: cs35l45-dsp1-spk-prot-calib.bin, which the same
+# public payload also carries.  It is a separate deploy group -- the .bin
+# above declares deploy_group "left" (tuning) and this one "left_cal"
+# (SPKChar speaker characterisation) -- and mainline's
+# wm_adsp_request_firmware_files() requests exactly one .wmfw and one .bin,
+# so nothing would ever load it.  Staging it would imply protection we do not
+# have: CAL_R and CAL_STATUS read 0 on the tablet.
+cirrus="$assets/firmware-overrides/usr/lib/firmware/cirrus"
+mkdir -p "$cirrus"
+cfw_base="${GTS9_CIRRUS_BASE:-https://raw.githubusercontent.com/Azkali/gts9wifi-firmware/main/cirrus}"
+for spec in \
+    "cs35l45-dsp1-spk-prot.wmfw:214ae6e1de113fde4f2568cdcd08bd0bf171d5b732a9eb44cfb4a8f6d9a67043" \
+    "cs35l45-dsp1-spk-prot.bin:5fd06ccbd3c8a071121609f642956f16754851814aa2fb4133e4becc2799e79f"; do
+    f="${spec%%:*}"; want="${spec##*:}"
+    if ! curl -fsSL --max-time 60 -o "$cirrus/$f" "$cfw_base/$f"; then
+        echo "    FAILED to download $f from $cfw_base" >&2
+        echo "    The UCM sets the per-amp volume to 428 assuming this firmware is" >&2
+        echo "    present; shipping without it risks the speakers.  Put the file in" >&2
+        echo "    $cirrus/ and re-run (GTS9_CIRRUS_BASE overrides the source)." >&2
+        exit 1
+    fi
+    got="$(sha256sum "$cirrus/$f" | cut -d' ' -f1)"
+    if [ "$got" != "$want" ]; then
+        echo "    FAILED checksum for $f: got $got want $want" >&2
+        exit 1
+    fi
+done
+echo "    staged 2 Cirrus CS35L45 speaker-protection file(s) in firmware-overrides/ (issue 17)"
+
 echo ">>> known-good SD boot files (from port kit)"
 cp -av "$port_kit/known-good-sd-boot/." "$assets/boot-files/"
 
