@@ -1247,6 +1247,8 @@
 		touchscreen-size-y = <2560>;
 		touchscreen-inverted-x;
 		touchscreen-swapped-x-y;
+		/* The driver arms a double-tap gesture while suspended. */
+		wakeup-source;
 	};
 };
 
