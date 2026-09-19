@@ -276,6 +276,70 @@ method=disabled
 EOF
 chmod 600 "$rootfs/etc/NetworkManager/system-connections/usb0.nmconnection"
 
+echo ">>> Restoring root ownership"
+# Every copy above preserves the SOURCE owner, and cp -a applies it to the
+# destination directories themselves -- which is how a built image ends up
+# with / and /etc owned by the checkout's uid and /usr by the dev host's:
+#
+#   cp -a "$repo_dir/rootfs/overlay/." "$rootfs/"   # chowns $rootfs and $rootfs/etc
+#   tar xzf "$firmware_tar" -C "$rootfs"            # a "usr/" entry chowns $rootfs/usr
+#
+# That is not cosmetic.  systemd refuses to canonicalize any path with a
+# non-root ancestor ("Detected unsafe path transition / (owned by 1001) ->
+# /var"), so every tmpfiles.d entry in the image is inert -- and
+# systemd-tmpfiles-setup.service hides it behind SuccessExitStatus=DATAERR
+# CANTCREAT, so it exits 73 on every boot and still reports success.  It also
+# leaves ~2400 packaged files owned by the build user (rpm -Va flags U/G on /,
+# /etc, /usr and thousands more); on an image whose first user is uid 1000 that
+# user then owns, and can rewrite, parts of /usr.
+#
+# Two steps, because the two classes need different treatment.
+#
+# 1. Ask the packages: rpm records the correct uid/gid/mode for every packaged
+#    file, so it restores them exactly.  A blanket `chown -R root:root` here
+#    would be actively harmful -- it strips the group ownership some paths need
+#    (/var/log/journal is root:systemd-journal), takes the service accounts'
+#    trees (/var/cache/httpd is apache:apache, /var/log/chrony chrony:chrony,
+#    /var/spool/abrt-upload abrt:abrt), and would clobber legitimately
+#    user-owned paths such as /var/spool/mail/$build_user (fedora:mail).
+#
+#    rpm exits non-zero here because packages that list Python bytecode fail
+#    with "restored failed" for the .pyc files the image does not carry; that is
+#    expected and it still restores every file it can, so this is a note rather
+#    than an error.
+if ! rpm --root="$rootfs" -a --setugids --setperms >/dev/null 2>&1; then
+    echo "    NOTE: rpm restore reported failures (expected: pruned .pyc); it restored the rest" >&2
+fi
+
+# 2. The overlay and firmware-override trees are not packages, so chown them by
+#    hand: every entry the tree installs, plus each parent directory leading to
+#    it (a root-owned file under a user-owned directory is still inert, because
+#    the ancestors are what systemd canonicalizes).
+chown root:root "$rootfs"
+for tree in "$repo_dir/rootfs/overlay" "$assets/firmware-overrides"; do
+    if [ -d "$tree" ]; then
+        while IFS= read -r -d '' rel; do
+            rel="${rel#./}"
+            if [ -e "$rootfs/$rel" ]; then
+                chown root:root "$rootfs/$rel"
+                parent="$(dirname "$rel")"
+                while [ "$parent" != "." ] && [ "$parent" != "/" ]; do
+                    chown root:root "$rootfs/$parent" 2>/dev/null || true
+                    parent="$(dirname "$parent")"
+                done
+            fi
+        done < <(cd "$tree" && find . -print0)
+    fi
+done
+
+# The firmware payload arrives as a tarball whose layout is not enumerated
+# here, and firmware and kernel modules are root-owned by definition.
+for d in "$rootfs/usr/lib/firmware" "$rootfs/lib/firmware" "$rootfs/usr/lib/modules"; do
+    if [ -d "$d" ]; then
+        chown -R root:root "$d"
+    fi
+done
+
 echo ">>> Users"
 echo "root:${build_user}" | chpasswd --root "$rootfs"
 useradd --root "$rootfs" -m -G wheel -s /bin/bash "$build_user"
