@@ -1,6 +1,5 @@
 # Fedora on the Samsung Galaxy Tab S9 Wi-Fi (SM-X710)
 
-<img width="2560" height="1600" alt="Screenshot From 2026-09-19 21-12-31" src="https://github.com/user-attachments/assets/cfde72fc-4f13-4597-8138-80e1f1823c54" />
 <img width="2560" height="1600" alt="Screenshot From 2026-09-19 21-11-57" src="https://github.com/user-attachments/assets/02131237-9f32-4939-8583-e29a04e767c9" />
 
 Mainline Linux (stable **7.2** plus a small patch set) with a **Fedora 44**
