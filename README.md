@@ -24,17 +24,17 @@ boot-image-v4 bundle, and a TWRP flash zip.
 
 ## Documentation
 
-The [wiki](https://github.com/troikoss/gts9wifi-fedora/wiki) holds everything
-beyond this file:
+[INSTALL.md](INSTALL.md) is the full install walk-through. Everything else
+lives in `docs/`:
 
 | Page | Contents |
 |---|---|
-| [Home](https://github.com/troikoss/gts9wifi-fedora/wiki/Home) | full hardware status table |
-| [Installation](https://github.com/troikoss/gts9wifi-fedora/wiki/Installation) | install, update, roll back |
-| [Known Issues](https://github.com/troikoss/gts9wifi-fedora/wiki/Known-Issues) | the issue register referenced by commits and scripts |
-| [TODO](https://github.com/troikoss/gts9wifi-fedora/wiki/TODO) | what is outstanding, and where each investigation stopped |
-| [Porting Guide](https://github.com/troikoss/gts9wifi-fedora/wiki/Porting-Guide) | porting Linux to a different Android tablet |
-| [Hardware Notes](https://github.com/troikoss/gts9wifi-fedora/wiki/Hardware-Notes) | per-subsystem debugging notes |
+| [Known Issues](docs/Known-Issues.md) | the issue register referenced by commits and scripts |
+| [TODO](docs/TODO.md) | what is outstanding, and where each investigation stopped |
+| [Porting Guide](docs/Porting-Guide.md) | porting Linux to a different Android tablet |
+| [Hardware Notes](docs/Hardware-Notes.md) | per-subsystem debugging notes |
+| [Device Controls](docs/Device-Controls.md) | the double-tap-to-wake and fast-charging switches |
+| [Port Kit](docs/PORT-KIT.md) | the extraction inventory behind the port (developer notes) |
 
 ---
 
@@ -50,7 +50,7 @@ probe, ambient-light sensing over D-Bus, password login.
 | Speakers + DMIC capture, with speaker-protection DSP firmware | Under-display fingerprint — secure processor is up, blocked at the TEE |
 | Battery/charging, Type-C PD, USB-C DisplayPort alt-mode | `/vendor` (Android `super`) is not mounted |
 | GPU (Adreno 740), sensors incl. auto-rotate, both cameras | No autofocus anywhere in the camera stack |
-| Hardware video decode (VP9 / H.264 / HEVC) | Only some applications can reach the VPU — see the wiki |
+| Hardware video decode (VP9 / H.264 / HEVC) | Only some applications can reach the VPU — see [Hardware Notes](docs/Hardware-Notes.md) |
 | Power/volume keys, book-cover lid, suspend | SELinux runs permissive |
 
 ---
@@ -66,9 +66,7 @@ everything needed:
 - **`kernel-…-gts9wifi-…`** — the TWRP flash zip (boot bundle), the kernel RPM,
   and the firmware payload asset.
 
-The install walk-through is on the wiki's
-[Installation](https://github.com/troikoss/gts9wifi-fedora/wiki/Installation)
-page.
+The full walk-through is in [INSTALL.md](INSTALL.md).
 
 ---
 
@@ -118,6 +116,7 @@ thing you notice is Wi-Fi and Bluetooth being dead.
 | `boot/` | `build-bundle.sh` (Android boot-image-v4 bundle), cmdline, bootconfig, dracut config, initramfs USB-net module |
 | `specs/` | RPM specs carrying the vendored patches (`hexagonrpcd`, `iio-sensor-proxy`, `libcamera-hi1337`) |
 | `tools/` | vendored AOSP `avbtool`/`mkbootimg`, TWRP zip packer and installer |
+| `docs/` | issue register, TODO, porting guide, hardware notes, port kit |
 
 `kernel/files/spu/spss-irq/` and `specs/libcamera-hi1337/` carry their own
 READMEs.
@@ -140,10 +139,9 @@ because Samsung's sensor registry and Wi-Fi calibration live there.
 
 ## Contributing
 
-Check
-[Known Issues](https://github.com/troikoss/gts9wifi-fedora/wiki/Known-Issues)
+Check [Known Issues](docs/Known-Issues.md)
 before opening an issue. Issue numbers in commits and scripts refer to the
-wiki's issue register, not to GitHub issue numbers.
+register in `docs/Known-Issues.md`, not to GitHub issue numbers.
 
 ---
 

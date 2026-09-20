@@ -64,4 +64,4 @@ This unlocks **AGC and correct colour**, but *not* focus control: libcamera
 0.7.1's simple pipeline handler has no lens support at all (no `CameraLens`,
 no `LensPosition` control), so no sensor helper can expose it. Driving the
 `dw9808` VCM still requires direct V4L2 control of the lens subdev — see
-the camera wiki page.
+docs/Hardware-Notes.md, Cameras.

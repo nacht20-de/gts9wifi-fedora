@@ -4,7 +4,7 @@
 # boot files, and your SSH public key.
 #
 # Requires: the tablet running pmOS attached via USB (172.16.42.1) and the
-# port kit extracted at ../port-kit (see the gts9wifi Fedora port kit page in the wiki).
+# port kit extracted at ../port-kit (see docs/PORT-KIT.md).
 #
 # Note: the device-independent overrides staged below (Cirrus CS35L45, the VPU
 # blob, the IOE Wi-Fi set and the 5 GHz BDF) are also staged at build time by
@@ -36,7 +36,7 @@ echo ">>> Samsung WCN6855 BT firmware override (2.4GHz coexist fix)"
 # The linux-firmware BT NVM/rampatch for WCN6855 mis-tunes 2.4GHz WLAN/BT
 # coexistence: with Wi-Fi on, BT keyboard + audio lag.  Replacing the blobs
 # with the device's own Samsung ones (as shipped on the stock /vendor) fixes
-# it (the known-issues page in the wiki, issue 3).  Pull them from the reference device: if its
+# it (docs/Known-Issues.md, issue 3).  Pull them from the reference device: if its
 # active files differ from the stock linux-firmware backups, stage the active
 # ones; otherwise this step is a no-op.
 btq="$assets/firmware-overrides/usr/lib/firmware/qca"
@@ -65,10 +65,10 @@ echo ">>> WCN6855 Wi-Fi firmware override (IOE 04866.5 mainline set + 5 GHz RX f
 # (WLAN.HSP.1.1-04866.5-QCAHSPSWPL_V1_V2_SILICONZ_IOE-1, from CodeLinaro)
 # is the reliable family on this unit; Samsung's own amss20 crashes ath11k
 # (MHI_CB_EE_RDDM).  The generic linux-firmware board-2.bin leaves 5 GHz RX
-# weak (the known-issues page in the wiki, issue 7); the fix is to swap the
+# weak (docs/Known-Issues.md, issue 7); the fix is to swap the
 # matched payload for the LE_X13S device-tuned board file (same 0108
-# subsystem), which restores ~47 dB (the Wi-Fi page in the wiki, tested
-# 2026-09-15).  Stage the IOE amss/m3 and the fixed board-2.bin if they differ
+# subsystem), which restores ~47 dB (docs/Hardware-Notes.md, Wi-Fi section,
+# tested 2026-09-15).  Stage the IOE amss/m3 and the fixed board-2.bin if they differ
 # from the stock linux-firmware backups; else no-op.
 wfx="$assets/firmware-overrides/usr/lib/firmware/ath11k/WCN6855/hw2.1"
 mkdir -p "$wfx"
@@ -87,7 +87,7 @@ done
 
 echo ">>> WCN6855 board-2.bin override (5 GHz RX fix)"
 # Generic linux-firmware board data leaves 5 GHz RX ~50 dB weak on this tablet
-# (the known-issues page in the wiki, issue 7), even though 2.4 GHz and 5 GHz TX are healthy.  The
+# (docs/Known-Issues.md, issue 7), even though 2.4 GHz and 5 GHz TX are healthy.  The
 # fix: swap the exact-ABI matched entry
 #   bus=pci,vendor=17cb,device=1103,subsystem-vendor=17cb,subsystem-device=0108,
 #   qmi-chip-id=18,qmi-board-id=255   (md5 0e92fa42…, 60,036 B generic)
