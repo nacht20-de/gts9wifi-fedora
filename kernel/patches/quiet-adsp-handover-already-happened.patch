@@ -1,0 +1,35 @@
+From: SM-X710 postmarketOS port <gts9wifi@example.com>
+Date: Sun, 20 Sep 2026 04:00:00 +0300
+Subject: [PATCH] remoteproc: qcom_q6v5: stop logging a repeated handover interrupt
+
+The ADSP handover interrupt is level-triggered and the remote processor keeps
+it asserted after the first handover, so q6v5_handover_interrupt() fires again
+and again for the rest of the session.  On this tablet it repeats about 5.4
+times a second and accounts for 99.98 % of the kernel log ring, which makes
+dmesg unusable for anything else -- including the debugging of every other
+subsystem.
+
+The repeat is expected and harmless: the handover has already been performed by
+the time it arrives.  Log it at debug level so it cannot flood the log.  There
+is no behaviour change; the interrupt is still handled the same way.
+
+Signed-off-by: SM-X710 postmarketOS port <gts9wifi@example.com>
+---
+--- a/drivers/remoteproc/qcom_q6v5.c
++++ b/drivers/remoteproc/qcom_q6v5.c
+@@ -165,7 +165,14 @@
+ 	struct qcom_q6v5 *q6v5 = data;
+ 
+ 	if (q6v5->handover_issued) {
+-		dev_err(q6v5->dev, "Handover signaled, but it already happened\n");
++		/*
++		 * The handover interrupt is level-triggered and the remote keeps it
++		 * asserted after the first handover, so this fires again and again
++		 * (about five times a second on the SM-X710) and buries the rest of
++		 * the kernel log.  The handover itself has already happened, so log
++		 * the repeat at debug level instead of at error level.
++		 */
++		dev_dbg(q6v5->dev, "Handover signaled, but it already happened\n");
+ 		return IRQ_HANDLED;
+ 	}
+ 

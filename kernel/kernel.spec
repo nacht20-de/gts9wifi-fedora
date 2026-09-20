@@ -8,7 +8,7 @@
 
 Name:           linux-%{flavor}
 Version:        7.2.0
-Release:        0.6.rc3%{?dist}
+Release:        0.7.rc3%{?dist}
 Summary:        Mainline Linux kernel for Samsung Galaxy Tab S9 Wi-Fi (gts9wifi)
 License:        GPL-2.0-only
 URL:            https://www.kernel.org
