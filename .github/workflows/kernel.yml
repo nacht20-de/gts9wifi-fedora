@@ -11,9 +11,16 @@ on:
         description: "sha256 of the firmware payload"
         default: "30cace40556fdaf1577c76bedc1b1a6236f4acc23e9300253b3834fa7ed4bab5"
         type: string
+      release_tag:
+        description: "Release tag to (re)publish the RPM, boot bundle and TWRP zip to, e.g. kernel-7.2.0-rc3-gts9wifi-4 (required: there is no artifact upload anymore)"
+        default: ""
+        type: string
 
 env:
   KVER: 7.2.0-rc3-gts9wifi
+
+permissions:
+  contents: write
 
 jobs:
   build-kernel:
@@ -21,6 +28,14 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 120
     steps:
+      - name: Require a release tag
+        run: |
+          [ -n "${{ inputs.release_tag }}" ] || {
+            echo "release_tag is required: assets go straight to the release," >&2
+            echo "and the run no longer uploads Actions artifacts." >&2
+            exit 1
+          }
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -85,26 +100,20 @@ jobs:
                 out-twrp/gts9wifi-fedora-"$KVER".zip --project /work
             '
 
-      - name: Upload kernel RPM
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-gts9wifi-rpm
-          path: out-kernel/*.rpm
-          if-no-files-found: error
-
-      - name: Upload boot bundle images
-        uses: actions/upload-artifact@v4
-        with:
-          name: gts9wifi-boot-bundle
-          path: |
-            out-bundle/*.img
-            out-bundle/SHA256SUMS
-            out-bundle/BUILD-METADATA.txt
-          if-no-files-found: error
-
-      - name: Upload TWRP flash zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: gts9wifi-twrp-zip
-          path: out-twrp/*.zip
-          if-no-files-found: error
+      # Same model as the rootfs workflow: publish straight from the runner to
+      # the named release instead of uploading Actions artifacts, so there is
+      # no RPM/bundle round-trip through a personal machine.  The release is
+      # created when it does not exist yet; --clobber replaces same-named
+      # assets, so re-running against the same tag keeps a stable asset set.
+      - name: Publish assets to the named release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REL: ${{ inputs.release_tag }}
+        run: |
+          gh release view "$REL" >/dev/null 2>&1 || \
+            gh release create "$REL" --title "$REL" \
+              --notes "Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          gh release upload "$REL" --clobber \
+            out-kernel/*.rpm \
+            out-bundle/*.img out-bundle/SHA256SUMS out-bundle/BUILD-METADATA.txt \
+            out-twrp/*.zip

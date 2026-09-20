@@ -29,7 +29,7 @@ on:
         default: "30cace40556fdaf1577c76bedc1b1a6236f4acc23e9300253b3834fa7ed4bab5"
         type: string
       release_tag:
-        description: "Release tag to (re)publish the finished assets to, e.g. rootfs-f44-gnome-3 (empty = skip publishing)"
+        description: "Release tag to (re)publish the finished assets to, e.g. rootfs-f44-gnome-3 (required: there is no artifact upload anymore)"
         default: ""
         type: string
 
@@ -44,6 +44,14 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
     steps:
+      - name: Require a release tag
+        run: |
+          [ -n "${{ inputs.release_tag }}" ] || {
+            echo "release_tag is required: assets go straight to the release," >&2
+            echo "and the run no longer uploads Actions artifacts." >&2
+            exit 1
+          }
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -77,20 +85,14 @@ jobs:
       # The runner uploads straight to the release: there is no API to turn an
       # Actions artifact into a release asset, and doing it from here avoids a
       # ~2 GB download/upload round-trip through a personal machine.  --clobber
-      # replaces same-named assets, so the tag keeps a stable asset set.
+      # replaces same-named assets, so the tag keeps a stable asset set.  This
+      # is the run's only output — no Actions artifacts are uploaded.
       - name: Publish assets to the named release
-        if: inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
           REL: ${{ inputs.release_tag }}
-        run: gh release upload "$REL" --clobber out/*.tar.gz out/rootfs-manifest.txt out/SHA256SUMS
-
-      - name: Upload rootfs tarball
-        uses: actions/upload-artifact@v4
-        with:
-          name: gts9wifi-fedora-${{ inputs.desktop }}-rootfs-f${{ inputs.fedora_release }}
-          path: |
-            out/*.tar.gz
-            out/rootfs-manifest.txt
-            out/SHA256SUMS
-          if-no-files-found: error
+        run: |
+          gh release view "$REL" >/dev/null 2>&1 || \
+            gh release create "$REL" --title "$REL" \
+              --notes "Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          gh release upload "$REL" --clobber out/*.tar.gz out/rootfs-manifest.txt out/SHA256SUMS
