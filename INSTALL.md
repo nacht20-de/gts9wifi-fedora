@@ -68,7 +68,7 @@ three). It never touches any other partition and never reboots the tablet.
 
 Download the **TWRP flash zip** from
 [Releases](https://github.com/nacht20-de/gts9wifi-fedora/releases) (for example
-`gts9wifi-fedora-7.2.6-gts9wifi.zip`). It contains the five boot-chain
+`gts9wifi-fedora-7.2.0-gts9wifi.zip`). It contains the five boot-chain
 images at exact partition sizes plus the installer; its `SHA256SUMS` file
 lists each image.
 
@@ -77,7 +77,7 @@ lists each image.
 1. Boot TWRP: power off, then hold **Volume Up + Power** past the Samsung
    logo. (Volume Down + USB is download mode — not what you want.)
 2. Push the zip from the PC:
-   `adb push gts9wifi-fedora-7.2.6-gts9wifi.zip /tmp/inst.zip`
+   `adb push gts9wifi-fedora-7.2.0-gts9wifi.zip /tmp/inst.zip`
 3. TWRP → *Install* → select `/tmp/inst.zip` (or
    `adb shell twrp install /tmp/inst.zip`). The installer verifies the device
    (`gts9`/`gts9wifi`, `SM-X710`) and every partition size before writing

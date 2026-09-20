@@ -4,10 +4,10 @@
 # APKBUILD package() to RPM.
 %define flavor gts9wifi
 %define debug_package %{nil}
-%define kversion 7.2.6
+%define kversion 7.2.0
 
 Name:           linux-%{flavor}
-Version:        7.2.6
+Version:        7.2.0
 Release:        0.1%{?dist}
 Summary:        Mainline Linux kernel for Samsung Galaxy Tab S9 Wi-Fi (gts9wifi)
 License:        GPL-2.0-only
@@ -59,8 +59,10 @@ rm -f %{buildroot}/usr/lib/modules/*/build %{buildroot}/usr/lib/modules/*/source
 /usr/lib/modules/*
 
 %changelog
-* Sun Sep 20 2026 nacht20-de <318505313+nacht20-de@users.noreply.github.com> - 7.2.6-0.1
-- Rebase onto the 7.2.6 stable release (same port patch set, drivers and config).
+* Sun Sep 20 2026 nacht20-de <318505313+nacht20-de@users.noreply.github.com> - 7.2.0-0.1
+- Rebase onto the 7.2 stable release.  The 7.2.6 kernel loses the WCN6855
+  MHI power-up deterministically (BHI load fails) with no delta in the port
+  itself; 7.2 is the base while that regression is chased separately.
 
 * Sat Aug 29 2026 nacht20-de <318505313+nacht20-de@users.noreply.github.com> - 7.2.0-0.1.rc3
 - First RPM packaging of the gts9wifi mainline kernel (pmOS APKBUILD translation).

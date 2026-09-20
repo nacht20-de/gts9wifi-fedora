@@ -60,7 +60,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--label",
-        default="Fedora gts9wifi boot bundle (mainline 7.2.6-gts9wifi)",
+        default="Fedora gts9wifi boot bundle (mainline 7.2.0-gts9wifi)",
     )
     args = parser.parse_args()
 

@@ -83,7 +83,7 @@ mount "$rp" "$m_root"
 tar xzf "$rootfs_tar" -C "$m_root"
 
 echo ">>> injecting local assets (CI rootfs ships without them)"
-kver="${GTS9_KERNEL_VERSION:-7.2.6}"
+kver="${GTS9_KERNEL_VERSION:-7.2}"
 if [ -f "$assets/firmware.tar.gz" ]; then
     tar xzf "$assets/firmware.tar.gz" -C "$m_root"
 else

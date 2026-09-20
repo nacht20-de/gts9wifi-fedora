@@ -5,13 +5,14 @@ on:
     inputs:
       kernel_rpm_url:
         description: "Kernel RPM URL (defaults to the pinned release)"
-        # Pinned to the kernel-7.2.6-gts9wifi-1 release; re-pin together
-        # with the kernel whenever a new kernel build is published.
-        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.6-gts9wifi-1/linux-gts9wifi-7.2.6-0.1.fc44.aarch64.rpm"
+        # Placeholder until the first 7.2 kernel build is published: dispatch
+        # "Kernel build" with release_tag=kernel-7.2.0-gts9wifi-1, then fill in
+        # the RPM's real sha256 here.
+        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-gts9wifi-1/linux-gts9wifi-7.2.0-0.1.fc44.aarch64.rpm"
         type: string
       kernel_sha256:
         description: "sha256 of the RPM"
-        default: "75bcb06723b021b50e759e251101cf87c80cf920558038b42a8f1c3e6a83b0af"
+        default: "0000000000000000000000000000000000000000000000000000000000000000"
         type: string
       firmware_url:
         description: "Device firmware payload (GPU/ADSP blobs for the initramfs)"
@@ -22,12 +23,12 @@ on:
         default: "30cace40556fdaf1577c76bedc1b1a6236f4acc23e9300253b3834fa7ed4bab5"
         type: string
       release_tag:
-        description: "Release tag to (re)publish the boot bundle and TWRP zip to, e.g. kernel-7.2.6-gts9wifi-1 (required: there is no artifact upload anymore)"
+        description: "Release tag to (re)publish the boot bundle and TWRP zip to, e.g. kernel-7.2.0-gts9wifi-1 (required: there is no artifact upload anymore)"
         default: ""
         type: string
 
 env:
-  KVER: 7.2.6-gts9wifi
+  KVER: 7.2.0-gts9wifi
 
 permissions:
   contents: write
@@ -69,7 +70,7 @@ jobs:
               echo "$KERNEL_SHA256  /tmp/kernel.rpm" | sha256sum -c -
               dnf -y install /tmp/kernel.rpm
               depmod -a "$KVER"
-              ls /boot/vmlinuz-"$KVER" /boot/dtbs-7.2.6-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb
+              ls /boot/vmlinuz-"$KVER" /boot/dtbs-7.2.0-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb
 
               # --- device firmware: the initramfs needs it ---
               # The Adreno driver is built-in and probes during the initramfs,
@@ -90,7 +91,7 @@ jobs:
               mkdir -p out-bundle out-twrp
               bash /work/boot/build-bundle.sh \
                 --vmlinuz /boot/vmlinuz-"$KVER" \
-                --dtb "/boot/dtbs-7.2.6-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb" \
+                --dtb "/boot/dtbs-7.2.0-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb" \
                 --initramfs /tmp/initramfs.img \
                 --cmdline /work/boot/cmdline.txt \
                 --bootconfig /work/boot/bootconfig.txt \

@@ -47,7 +47,7 @@ rootfs_tar="${1:?usage: mk-internal-storage.sh <rootfs.tar.gz> (tablet must be i
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_dir="$(dirname "$script_dir")"
 assets="$repo_dir/local-assets"
-kver="${GTS9_KERNEL_VERSION:-7.2.6}"
+kver="${GTS9_KERNEL_VERSION:-7.2}"
 user="${GTS9_USER:-fedora}"
 
 # Must match boot/cmdline.txt (root=UUID=...) and the fstab written by
