@@ -1,0 +1,73 @@
+name: Full set release
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_release:
+        description: "Kernel release tag to take the RPM, boot bundle and TWRP zip from"
+        default: "kernel-7.2.0-gts9wifi-1"
+        type: string
+      rootfs_release:
+        description: "Rootfs release tag to take the tarball and manifest from"
+        default: "rootfs-f44-gnome-5"
+        type: string
+      release_tag:
+        description: "Combined release tag to publish, e.g. gts9wifi-fedora-7.2.0-1 (required: there is no artifact upload anymore)"
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  full-set:
+    # Pure re-packaging: pull the assets of one kernel release and one rootfs
+    # release, check that they really form a pair, and publish them together.
+    # No build, no artifacts — the runner never stores anything.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - name: Require a release tag
+        run: |
+          [ -n "${{ inputs.release_tag }}" ] || {
+            echo "release_tag is required: assets go straight to the release," >&2
+            echo "and the run does not upload Actions artifacts." >&2
+            exit 1
+          }
+
+      - name: Assemble and publish the full set
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KREL: ${{ inputs.kernel_release }}
+          RREL: ${{ inputs.rootfs_release }}
+          REL: ${{ inputs.release_tag }}
+        run: |
+          set -euxo pipefail
+
+          mkdir -p k r
+          gh release download "$KREL" --dir k --clobber
+          gh release download "$RREL" --dir r --clobber
+
+          # The kernel's bundle checksums and the rootfs's tarball checksums
+          # are both named SHA256SUMS; the combined release keeps both, so
+          # rename the kernel side on the way in.
+          mv k/SHA256SUMS k/BUNDLE-SHA256SUMS
+
+          # A combined release must be a matched pair: the RPM shipped next to
+          # the tarball has to be the one the rootfs image was built with.
+          # build-rootfs.sh records the installed kernel RPM in the manifest.
+          rpm_name=$(basename "$(echo k/linux-gts9wifi-*.rpm)")
+          rpm_version=$(echo "$rpm_name" | sed -E 's/^linux-gts9wifi-([0-9][^-]*)-.*$/\1/')
+          grep -q "linux-gts9wifi-$rpm_version" r/rootfs-manifest.txt || {
+            echo "REFUSING: $rpm_name does not match the kernel in $RREL's manifest." >&2
+            exit 1
+          }
+
+          gh release view "$REL" >/dev/null 2>&1 || \
+            gh release create "$REL" --title "$REL" --latest \
+              --notes "Everything needed to run Fedora on the Galaxy Tab S9 Wi-Fi in one release: the kernel RPM, the Android boot bundle, the TWRP flash zip, and the turnkey rootfs tarball — the verified pair from \`$KREL\` and \`$RREL\`.
+
+          Install: see INSTALL.md in the repository. Flash the TWRP zip for the boot chain, install the rootfs with mk-internal-storage.sh; kernel and rootfs modules match.
+
+          Checksums: SHA256SUMS covers the rootfs tarball, BUNDLE-SHA256SUMS covers the boot images."
+          gh release upload "$REL" --clobber k/* r/*
