@@ -1,12 +1,11 @@
 diff --git a/drivers/soc/qcom/Kconfig b/drivers/soc/qcom/Kconfig
-index 5f9e94d8f8ac..a074c9047992 100644
+index 2caadbb..9dc05a9 100644
 --- a/drivers/soc/qcom/Kconfig
 +++ b/drivers/soc/qcom/Kconfig
-@@ -375,6 +375,17 @@ config QCOM_PBS
- 	  trigger event through the PBS RAM on Qualcomm Technologies, Inc. PMICs.
+@@ -295,6 +295,17 @@ config QCOM_PBS
  	  This module provides the APIs to the client drivers that wants to send the
  	  PBS trigger event to the PBS RAM.
-+
+ 
 +config SAMSUNG_GTS9WIFI_SEC_LOG
 +	bool "Samsung SM-X710 persistent early console"
 +	depends on ARCH_QCOM
@@ -17,17 +16,21 @@ index 5f9e94d8f8ac..a074c9047992 100644
 +	  can expose the previous mainline printk stream as /proc/last_kmsg.
 +
 +	  Say Y only for the SM-X710 bring-up kernel.
- 
++
  endmenu
  
+ config QCOM_UBWC_CONFIG
+
 diff --git a/drivers/soc/qcom/Makefile b/drivers/soc/qcom/Makefile
-index 9b802843fbea..db6a248ba9e5 100644
+index b7f1d2a..01b9ad4 100644
 --- a/drivers/soc/qcom/Makefile
 +++ b/drivers/soc/qcom/Makefile
-@@ -44,2 +44,3 @@ obj-$(CONFIG_QCOM_INLINE_CRYPTO_ENGINE) += qcom_ice.o
- obj-$(CONFIG_QCOM_PBS) += qcom-pbs.o
+@@ -40,3 +40,4 @@ qcom_ice-objs			+= ice.o
+ obj-$(CONFIG_QCOM_INLINE_CRYPTO_ENGINE)	+= qcom_ice.o
+ obj-$(CONFIG_QCOM_PBS) +=	qcom-pbs.o
  obj-$(CONFIG_QCOM_UBWC_CONFIG) += ubwc_config.o
 +obj-$(CONFIG_SAMSUNG_GTS9WIFI_SEC_LOG) += samsung-gts9wifi-sec-log.o
+
 diff --git a/drivers/soc/qcom/samsung-gts9wifi-sec-log.c b/drivers/soc/qcom/samsung-gts9wifi-sec-log.c
 new file mode 100644
 index 000000000000..7ccbac4fd645

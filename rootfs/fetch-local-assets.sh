@@ -19,7 +19,7 @@ repo_dir="$(dirname "$script_dir")"
 assets="$repo_dir/local-assets"
 port_kit="${PORT_KIT:-$(dirname "$repo_dir")/port-kit}"
 device="${GTS9_DEVICE:-phablet@172.16.42.1}"
-kver="${GTS9_KERNEL_VERSION:-7.2.0-rc3}"
+kver="${GTS9_KERNEL_VERSION:-7.2.6}"
 
 mkdir -p "$assets/modules" "$assets/boot-files"
 

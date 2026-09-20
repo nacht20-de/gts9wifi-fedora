@@ -5,19 +5,22 @@ on:
     inputs:
       kernel_rpm_url:
         description: "Kernel RPM URL (defaults to the pinned release)"
-        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-2/linux-gts9wifi-7.2.0-0.2.rc3.fc44.aarch64.rpm"
+        # Placeholder until the first 7.2.6 kernel build is published: dispatch
+        # "Kernel build" with release_tag=kernel-7.2.6-gts9wifi-1, then fill in
+        # the RPM's real sha256 here.
+        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.6-gts9wifi-1/linux-gts9wifi-7.2.6-0.1.fc44.aarch64.rpm"
         type: string
       kernel_sha256:
         description: "sha256 of the RPM"
-        default: "07aaee8c980b8428a838d5acf2a637cade076d3cc132f299904c21737ca1ee25"
+        default: "0000000000000000000000000000000000000000000000000000000000000000"
         type: string
       release_tag:
-        description: "Release tag to (re)publish the boot bundle and TWRP zip to, e.g. kernel-7.2.0-rc3-gts9wifi-4 (required: there is no artifact upload anymore)"
+        description: "Release tag to (re)publish the boot bundle and TWRP zip to, e.g. kernel-7.2.6-gts9wifi-1 (required: there is no artifact upload anymore)"
         default: ""
         type: string
 
 env:
-  KVER: 7.2.0-rc3-gts9wifi
+  KVER: 7.2.6-gts9wifi
 
 permissions:
   contents: write
@@ -57,7 +60,7 @@ jobs:
               echo "$KERNEL_SHA256  /tmp/kernel.rpm" | sha256sum -c -
               dnf -y install /tmp/kernel.rpm
               depmod -a "$KVER"
-              ls /boot/vmlinuz-"$KVER" /boot/dtbs-7.2.0-rc3-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb
+              ls /boot/vmlinuz-"$KVER" /boot/dtbs-7.2.6-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb
 
               # --- initramfs ---
               cp -a /work/boot/dracut/90gts9wifi-usbnet /usr/lib/dracut/modules.d/
@@ -68,7 +71,7 @@ jobs:
               mkdir -p out-bundle out-twrp
               bash /work/boot/build-bundle.sh \
                 --vmlinuz /boot/vmlinuz-"$KVER" \
-                --dtb "/boot/dtbs-7.2.0-rc3-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb" \
+                --dtb "/boot/dtbs-7.2.6-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb" \
                 --initramfs /tmp/initramfs.img \
                 --cmdline /work/boot/cmdline.txt \
                 --bootconfig /work/boot/bootconfig.txt \

@@ -22,7 +22,7 @@
 set -euo pipefail
 
 fedora_release="${FEDORA_RELEASE:-44}"
-kver="${GTS9_KERNEL_VERSION:-7.2.0-rc3}"
+kver="${GTS9_KERNEL_VERSION:-7.2.6}"
 build_user="${GTS9_USER:-fedora}"
 # gnome = Fedora Workstation environment + gdm (the release image);
 # core = headless @core only (smaller bring-up/debug image).

@@ -14,11 +14,14 @@ on:
         options: [gnome, core]
       kernel_rpm_url:
         description: "Kernel RPM URL — must be the same release users flash as the TWRP boot bundle"
-        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-3/linux-gts9wifi-7.2.0-0.2.rc3.fc44.aarch64.rpm"
+        # Placeholder until the first 7.2.6 kernel build is published: dispatch
+        # "Kernel build" with release_tag=kernel-7.2.6-gts9wifi-1, then fill in
+        # the RPM's real sha256 here.
+        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.6-gts9wifi-1/linux-gts9wifi-7.2.6-0.1.fc44.aarch64.rpm"
         type: string
       kernel_sha256:
         description: "sha256 of the RPM"
-        default: "a587a3b029226161eb38ae763b9e6c5a13b0581715723dc695f7c5fc004a0755"
+        default: "0000000000000000000000000000000000000000000000000000000000000000"
         type: string
       firmware_url:
         description: "Device firmware payload (extracted from the stock partitions)"

@@ -12,12 +12,12 @@ on:
         default: "30cace40556fdaf1577c76bedc1b1a6236f4acc23e9300253b3834fa7ed4bab5"
         type: string
       release_tag:
-        description: "Release tag to (re)publish the RPM, boot bundle and TWRP zip to, e.g. kernel-7.2.0-rc3-gts9wifi-4 (required: there is no artifact upload anymore)"
+        description: "Release tag to (re)publish the RPM, boot bundle and TWRP zip to, e.g. kernel-7.2.6-gts9wifi-1 (required: there is no artifact upload anymore)"
         default: ""
         type: string
 
 env:
-  KVER: 7.2.0-rc3-gts9wifi
+  KVER: 7.2.6-gts9wifi
 
 permissions:
   contents: write
@@ -56,22 +56,22 @@ jobs:
 
               # --- kernel ---
               mkdir -p /tmp/kcache
-              if [ ! -f /tmp/kcache/linux-7.2-rc3.tar.gz ]; then
-                curl -sfL https://git.kernel.org/torvalds/t/linux-7.2-rc3.tar.gz \
-                  -o /tmp/kcache/linux-7.2-rc3.tar.gz
+              if [ ! -f /tmp/kcache/linux-7.2.6.tar.gz ]; then
+                curl -sfL https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.2.6.tar.gz \
+                  -o /tmp/kcache/linux-7.2.6.tar.gz
               fi
-              tar xf /tmp/kcache/linux-7.2-rc3.tar.gz
-              cd linux-7.2-rc3
+              tar xf /tmp/kcache/linux-7.2.6.tar.gz
+              cd linux-7.2.6
               bash /work/kernel/prepare.sh .
               echo "-gts9wifi" > localversion-gts9wifi
               cd ..
-              mv linux-7.2-rc3 linux-prepared
+              mv linux-7.2.6 linux-prepared
               tar czf linux-prepared.tar.gz linux-prepared
               rm -rf linux-prepared
 
               mkdir -p ~/rpmbuild/SOURCES out-kernel out-bundle out-twrp
               cp linux-prepared.tar.gz ~/rpmbuild/SOURCES/
-              rpmbuild -bb --define "kversion 7.2.0-rc3" /work/kernel/kernel.spec
+              rpmbuild -bb --define "kversion 7.2.6" /work/kernel/kernel.spec
               cp ~/rpmbuild/RPMS/aarch64/*.rpm out-kernel/
 
               # --- initramfs: install the RPM into the container, dracut ours ---
@@ -89,7 +89,7 @@ jobs:
               # --- boot bundle ---
               bash /work/boot/build-bundle.sh \
                 --vmlinuz /boot/vmlinuz-"$KVER" \
-                --dtb "/boot/dtbs-7.2.0-rc3-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb" \
+                --dtb "/boot/dtbs-7.2.6-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb" \
                 --initramfs /tmp/initramfs.img \
                 --cmdline /work/boot/cmdline.txt \
                 --bootconfig /work/boot/bootconfig.txt \
