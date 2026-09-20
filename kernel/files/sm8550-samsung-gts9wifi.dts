@@ -1135,16 +1135,30 @@
 			displayport = <&mdss_dp0>;
 
 			/*
-			 * Samsung limits the switching-charger PD path to
-			 * 15 W and 9 V. PPS direct charging through SM5440
-			 * raises the programmable APDO only after Q4 is open.
+			 * Samsung's board data allows 3 A at 9 V on the switching
+			 * charger, but stock firmware only ever drew 15 W of that
+			 * (9 V / 1.66 A) and left the rest of a 45 W adapter unused.
+			 * Advertise the board's whole 3 A: the Sink Capabilities only
+			 * set what a contract may grant, and sm5714_battery.c decides
+			 * how much is actually drawn (its fast_charge attribute, which
+			 * the gnome-gts9wifi settings page drives through
+			 * gts9wifi-device-control).
+			 *
+			 * Nothing above 9 V is offered.  The fast path on this board is
+			 * the SM5440 2:1 pump on a PPS contract -- what the vendor's
+			 * own direct charger drives once Q4 is open -- and the vendor
+			 * never asks for more than its 11 V VBUS OVP minus 500 mV.
+			 * op-sink-microwatt stays at the stock 15 W because tcpm
+			 * applies it only to programmable (PPS/AVS) operating points:
+			 * it sets the floor the pump may request, not the fixed
+			 * contract, so raising it would only break direct charging.
 			 */
 			op-sink-microwatt = <15000000>;
 			sink-pdos = <PDO_FIXED(5000, 3000,
 					       PDO_FIXED_DUAL_ROLE |
 					       PDO_FIXED_DATA_SWAP |
 					       PDO_FIXED_USB_COMM)
-				     PDO_FIXED(9000, 1660,
+				     PDO_FIXED(9000, 3000,
 					       PDO_FIXED_USB_COMM)>;
 			source-pdos = <PDO_FIXED(5000, 900,
 						 PDO_FIXED_DUAL_ROLE |

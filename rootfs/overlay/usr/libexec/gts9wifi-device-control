@@ -25,6 +25,7 @@ state_dir=/var/lib/gts9wifi
 # name|group|label|description|default|sysfs path
 CONTROLS='
 double-tap-to-wake|Touchscreen|Double tap to wake|Wake the tablet from suspend by double tapping the screen.|1|/sys/bus/i2c/devices/10-0049/double_tap_to_wake
+fast-charge|Power|Fast charging|Charges the battery faster by drawing more power from your charger. A 5 A USB-C cable is recommended.|0|/sys/bus/i2c/devices/6-0049/fast_charge
 '
 
 usage() {

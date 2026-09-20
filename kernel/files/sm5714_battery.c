@@ -125,6 +125,14 @@ struct sm5714_battery {
 	enum sm5714_charge_thermal_state thermal_state;
 	bool direct_charging;
 	bool otg_active;
+	/*
+	 * Draw the board's whole 9 V / 3 A input budget instead of the stock
+	 * 15 W, and let the SM5440 pump take the pack over through a PPS
+	 * contract (see sm5714_battery_fast_charge_enabled()).  The
+	 * gnome-gts9wifi settings page flips this through the fast_charge
+	 * attribute.
+	 */
+	bool fast_charge;
 };
 
 static DEFINE_MUTEX(sm5714_global_lock);
@@ -134,6 +142,7 @@ static int sm5714_get_online_raw(struct sm5714_battery *sm);
 static int sm5714_get_online(struct sm5714_battery *sm);
 static int sm5714_get_temp(struct sm5714_battery *sm, int *val);
 int sm5714_battery_set_pd_contract(unsigned int mv, unsigned int ma);
+bool sm5714_battery_fast_charge_enabled(void);
 int sm5714_battery_set_direct_charge(bool active);
 int sm5714_battery_set_otg(bool active);
 bool sm5714_battery_is_otg_active(void);
@@ -378,11 +387,24 @@ static int sm5714_configure_charging(struct sm5714_battery *sm)
 	if (typec_mv >= 5000 && typec_ma >= 500) {
 		/*
 		 * Stock board data allows 3 A input, 3150 mA battery current and
-		 * 9 V on the switching charger.  The 15 W fixed-PD path uses
-		 * 9 V / 1.66 A; a Type-C Rp=3 A fallback may use 5 V / 3 A.
+		 * 9 V on the switching charger.  Stock firmware only ever drew
+		 * 15 W of that (9 V / 1.66 A) and left the rest of a 45 W adapter
+		 * unused; with fast charging on the tablet takes the board's whole
+		 * budget, and the sink PDOs advertise 9 V / 3 A so the contract can
+		 * actually grant it.
+		 *
+		 * This is an input ceiling, not a demand: the pack is limited by
+		 * fast_ma below, so the extra headroom can only ever feed the
+		 * system.  A Type-C Rp=3 A fallback may still use 5 V / 3 A.
 		 */
-		input_ma = min(typec_ma, typec_mv > 5000 ? 1660U : 3000U);
-		fast_ma = 2800;
+		if (sm->fast_charge) {
+			input_ma = min(typec_ma, 3000U);
+			fast_ma = 3150;
+		} else {
+			input_ma = min(typec_ma,
+				       typec_mv > 5000 ? 1660U : 3000U);
+			fast_ma = 2800;
+		}
 
 	} else switch (usb_type) {
 	case POWER_SUPPLY_USB_TYPE_DCP:
@@ -1098,6 +1120,73 @@ static int sm5714_resume(struct device *dev)
 
 static DEFINE_SIMPLE_DEV_PM_OPS(sm5714_pm_ops, sm5714_suspend, sm5714_resume);
 
+/*
+ * The fast-charge switch.
+ *
+ * Off -- the default, and what stock firmware does -- keeps the tablet on the
+ * SM5714 switching charger on the fixed 9 V contract and draws 15 W of it.  On
+ * raises the input budget to the board's 3 A and lets the SM5440 2:1 pump take
+ * over through a PPS contract, which is the only path on this board that can put
+ * more current into the pack than the switching charger can.  Both halves are
+ * driven from here: the SM5440 driver asks for the state through
+ * sm5714_battery_fast_charge_enabled().
+ */
+static ssize_t fast_charge_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct sm5714_battery *sm = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%d\n", sm->fast_charge);
+}
+
+static ssize_t fast_charge_store(struct device *dev,
+				 struct device_attribute *attr,
+				 const char *buf, size_t count)
+{
+	struct sm5714_battery *sm = dev_get_drvdata(dev);
+	bool enabled;
+	int ret;
+
+	ret = kstrtobool(buf, &enabled);
+	if (ret)
+		return ret;
+	if (sm->fast_charge == enabled)
+		return count;
+
+	sm->fast_charge = enabled;
+	dev_info(dev, "fast charging %s\n",
+		 enabled ? "enabled" : "disabled");
+	sm5714_configure_charging(sm);
+
+	return count;
+}
+static DEVICE_ATTR_RW(fast_charge);
+
+static struct attribute *sm5714_attrs[] = {
+	&dev_attr_fast_charge.attr,
+	NULL,
+};
+
+static const struct attribute_group sm5714_attr_group = {
+	.attrs = sm5714_attrs,
+};
+
+/*
+ * Read by the SM5440 direct-charge driver on every poll, so turning fast
+ * charging off hands the pack back to the switching charger within a second.
+ */
+bool sm5714_battery_fast_charge_enabled(void)
+{
+	struct sm5714_battery *sm;
+
+	mutex_lock(&sm5714_global_lock);
+	sm = sm5714_primary;
+	mutex_unlock(&sm5714_global_lock);
+
+	return sm && sm->fast_charge;
+}
+EXPORT_SYMBOL_GPL(sm5714_battery_fast_charge_enabled);
+
 static int sm5714_probe(struct i2c_client *client)
 {
 	struct power_supply_config psy_cfg = {};
@@ -1176,6 +1265,10 @@ static int sm5714_probe(struct i2c_client *client)
 	if (IS_ERR(sm->psy_usb))
 		return dev_err_probe(dev, PTR_ERR(sm->psy_usb),
 				     "cannot register charger\n");
+
+	ret = devm_device_add_group(dev, &sm5714_attr_group);
+	if (ret)
+		return dev_err_probe(dev, ret, "cannot add sysfs attributes\n");
 
 	ret = 0;
 	mutex_lock(&sm5714_global_lock);

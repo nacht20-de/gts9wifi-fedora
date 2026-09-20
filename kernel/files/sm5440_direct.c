@@ -81,8 +81,28 @@
 #define SM5440_PD_RETRIES		5
 
 #define SM5440_INITIAL_IBUS_MA		1800
-#define SM5440_INITIAL_PPS_MA		2000
 #define SM5440_VBATREG_MV		4400
+
+/*
+ * How much input current to ask the adapter for.
+ *
+ * The board's own budget is 3 A at 9 V (Samsung's board data), which is also what
+ * a standard USB-C cable is rated for, so that is the default.  An e-marked 5 A
+ * cable and an adapter that grants it can go higher; whatever the source refuses
+ * is discovered at run time by walking down from this value.
+ */
+#define SM5440_MAX_PPS_MA		3000
+#define SM5440_PPS_CAP_MA		5000
+#define SM5440_MIN_PPS_MA		1800
+#define SM5440_PPS_STEP_MA		250
+#define SM5440_IBUS_MARGIN_MA		300
+#define SM5440_PPS_V_STEP_MV		20
+#define SM5440_REFRESH_TICKS		2
+
+static unsigned int max_pps_ma = SM5440_MAX_PPS_MA;
+module_param(max_pps_ma, uint, 0644);
+MODULE_PARM_DESC(max_pps_ma,
+		 "Highest PPS input current to request, in mA (default 3000, max 5000)");
 
 /*
  * Board tuning from the X710 device tree (sm5440,freq = 850, freq_siop = 450
@@ -97,7 +117,14 @@
 #define SM5440_SIOP_LEV2_MA		1700
 #define SM5440_R_TTL_MILLIOHM		320
 #define SM5440_EXTRA_HEADROOM_MV	200
-#define SM5440_MAX_PPS_MV		9000
+/*
+ * The vendor's own ceiling: its dc_vbus_ovp_th is 11 V and the direct-charge
+ * loop never asks for more than dc_vbus_ovp_th - 500.  The operating point needs
+ * that room -- at the board's 3 A the cable and connector drop alone is
+ * 3 A x 320 mOhm = 960 mV on top of twice the cell voltage -- so clamping lower
+ * would starve the pump exactly where the current matters.
+ */
+#define SM5440_MAX_PPS_MV		10500
 
 /*
  * Direct charging is opt-in.
@@ -113,15 +140,13 @@
  * which is what Samsung's own board data programs -- holds the same pack current
  * (measured 2.4-2.8 A at this pack voltage) with none of that churn.
  *
- * Default to the switching path; enable the pump deliberately with
- * sm5440_direct.direct_charge=1.
+ * The switch is the charger driver's fast_charge attribute, which
+ * gnome-gts9wifi and /usr/libexec/gts9wifi-device-control drive: turning it off
+ * hands the pack straight back to the switching path, which is what a stock
+ * tablet uses.
  */
-static bool direct_charge;
-module_param(direct_charge, bool, 0644);
-MODULE_PARM_DESC(direct_charge,
-		 "Use PPS direct charging through the SM5440 2:1 pump (default: off)");
-
 int sm5714_battery_set_direct_charge(bool active);
+bool sm5714_battery_fast_charge_enabled(void);
 
 struct sm5440_direct {
 	struct device *dev;
@@ -225,36 +250,110 @@ static int sm5440_psy_retry(struct sm5440_direct *sm,
 	return ret;
 }
 
-static int sm5440_request_pps(struct sm5440_direct *sm, int mv, int ma)
+/*
+ * The pump halves the bus, so the operating point has to carry twice the cell
+ * voltage plus the drop across the cable and connector (r_ttl on this board)
+ * plus a small margin, exactly as the vendor loop computes it.
+ */
+static int sm5440_pps_target_mv(int ma, int vbat_uv)
 {
+	int headroom = DIV_ROUND_UP(ma * SM5440_R_TTL_MILLIOHM, 1000) +
+		       SM5440_EXTRA_HEADROOM_MV;
+	int mv = DIV_ROUND_UP((vbat_uv / 1000) * 2 + headroom,
+			      SM5440_PPS_V_STEP_MV) * SM5440_PPS_V_STEP_MV;
+
+	return clamp(mv, 8200, SM5440_MAX_PPS_MV);
+}
+
+/*
+ * The chip's own input limit, kept a little above the requested PPS current so
+ * the pump is not the thing throttling the contract, the way the vendor does it
+ * (ibuslim = ci_gl + SM5440_CI_OFFSET).  IBUSCNTL encodes 50 mA per step up to
+ * 0x7f, i.e. 6350 mA.
+ */
+static int sm5440_set_ibus_limit(struct sm5440_direct *sm, int ma)
+{
+	int limit = clamp_val(ma + SM5440_IBUS_MARGIN_MA, 0, 6350);
+
+	return i2c_smbus_write_byte_data(sm->client, SM5440_REG_IBUSCNTL,
+					 limit / 50);
+}
+
+/*
+ * Give the pump as much current as the adapter will grant.
+ *
+ * tcpm_aug_set_op_curr() answers -EINVAL both for a current above the source's
+ * PPS APDO and for one whose power lands under the port's operating_snk_mw
+ * (15 W on this board), and -EAGAIN while the port is not ready -- so walking
+ * down from the board's budget discovers the adapter's real limit without the
+ * driver having to read the source capabilities out of sysfs.  A rejected step is
+ * answered before any PD traffic, so walking costs no bus activity, and the pump
+ * is still off here, so the negotiations it does trigger cannot trip REVBLK.
+ */
+static int sm5440_negotiate_pps(struct sm5440_direct *sm, int vbat_uv,
+				int *target_ma, int *target_mv)
+{
+	int ma = clamp_val(max_pps_ma, SM5440_MIN_PPS_MA, SM5440_PPS_CAP_MA);
 	int ret;
 
 	ret = sm5440_psy_retry(sm, POWER_SUPPLY_PROP_ONLINE, 2);
 	if (ret)
 		return ret;
-	ret = sm5440_psy_retry(sm, POWER_SUPPLY_PROP_CURRENT_NOW, ma * 1000);
+
+	for (; ma >= SM5440_MIN_PPS_MA; ma -= SM5440_PPS_STEP_MA) {
+		ret = sm5440_psy_retry(sm, POWER_SUPPLY_PROP_CURRENT_NOW,
+				       ma * 1000);
+		if (!ret || ret != -EINVAL)
+			break;
+	}
 	if (ret)
 		goto fixed;
-	ret = sm5440_psy_retry(sm, POWER_SUPPLY_PROP_VOLTAGE_NOW, mv * 1000);
-	if (!ret)
-		return 0;
+
+	*target_ma = ma;
+	*target_mv = sm5440_pps_target_mv(ma, vbat_uv);
+	ret = sm5440_psy_retry(sm, POWER_SUPPLY_PROP_VOLTAGE_NOW,
+			       *target_mv * 1000);
+	if (ret)
+		goto fixed;
+
+	dev_info(sm->dev, "PPS contract requested: %d mV/%d mA\n",
+		 *target_mv, *target_ma);
+	return 0;
 
 fixed:
 	sm5440_psy_retry(sm, POWER_SUPPLY_PROP_ONLINE, 1);
 	return ret;
 }
 
+/*
+ * Keep the operating point alive.
+ *
+ * Every power_supply property write is its own Power Negotiation and each one
+ * re-applies the source's output voltage, so the refresh sends as few of them as
+ * it can: the voltage only when the pack has moved the operating point by a step
+ * (the only way it changes), the current every time.  The pump is parked across
+ * whichever negotiation happens -- see sm5440_renegotiate_pps().
+ */
 static int sm5440_refresh_pps(struct sm5440_direct *sm)
 {
+	int battery_uv, target_mv;
 	int ret;
 
-	ret = sm5440_psy_retry(sm, POWER_SUPPLY_PROP_CURRENT_NOW,
-			       sm->target_ma * 1000);
-	if (ret)
-		return ret;
+	battery_uv = sm5440_psy_get(sm->battery, POWER_SUPPLY_PROP_VOLTAGE_NOW);
+	if (battery_uv < 0)
+		return battery_uv;
 
-	return sm5440_psy_retry(sm, POWER_SUPPLY_PROP_VOLTAGE_NOW,
-				sm->target_mv * 1000);
+	target_mv = sm5440_pps_target_mv(sm->target_ma, battery_uv);
+	if (abs(target_mv - sm->target_mv) >= SM5440_PPS_V_STEP_MV) {
+		ret = sm5440_psy_retry(sm, POWER_SUPPLY_PROP_VOLTAGE_NOW,
+				       target_mv * 1000);
+		if (ret)
+			return ret;
+		sm->target_mv = target_mv;
+	}
+
+	return sm5440_psy_retry(sm, POWER_SUPPLY_PROP_CURRENT_NOW,
+				sm->target_ma * 1000);
 }
 
 static int sm5440_set_freq(struct sm5440_direct *sm, int khz)
@@ -474,29 +573,12 @@ static int sm5440_hw_init(struct sm5440_direct *sm)
 static int sm5440_start(struct sm5440_direct *sm)
 {
 	int battery_uv, target_mv, target_ma;
-	int headroom;
 	int ret;
 
 	battery_uv = sm5440_psy_get(sm->battery,
 				    POWER_SUPPLY_PROP_VOLTAGE_NOW);
 	if (battery_uv < 0)
 		return battery_uv;
-
-	target_ma = max(SM5440_INITIAL_PPS_MA,
-			DIV_ROUND_UP(DIV_ROUND_UP(15000000, SM5440_MAX_PPS_MV),
-				     50) * 50);
-	target_ma = min(target_ma, 2200);
-
-	/*
-	 * The pump halves the bus, so the operating point has to carry twice the
-	 * cell voltage plus the drop across the cable and connector (r_ttl on
-	 * this board) plus a small margin, exactly as the vendor loop computes
-	 * it.  Samsung caps this board's PD path at 9 V.
-	 */
-	headroom = DIV_ROUND_UP(target_ma * SM5440_R_TTL_MILLIOHM, 1000) +
-		   SM5440_EXTRA_HEADROOM_MV;
-	target_mv = DIV_ROUND_UP((battery_uv / 1000) * 2 + headroom, 20) * 20;
-	target_mv = clamp(target_mv, 8200, SM5440_MAX_PPS_MV);
 
 	/*
 	 * Open the SM5714 switching path while VBUS is still at its safe fixed
@@ -511,11 +593,15 @@ static int sm5440_start(struct sm5440_direct *sm)
 	if (ret)
 		goto restore;
 
+	ret = sm5440_negotiate_pps(sm, battery_uv, &target_ma, &target_mv);
+	if (ret)
+		goto restore;
+
 	ret = sm5440_select_freq(sm, target_ma);
 	if (ret)
 		goto restore;
 
-	ret = sm5440_request_pps(sm, target_mv, target_ma);
+	ret = sm5440_set_ibus_limit(sm, target_ma);
 	if (ret)
 		goto restore;
 
@@ -537,8 +623,10 @@ static int sm5440_start(struct sm5440_direct *sm)
 	sm->target_mv = target_mv;
 	sm->target_ma = target_ma;
 	sm->pps_ticks = 0;
-	dev_info(sm->dev, "direct charge started: PPS %d mV/%d mA\n",
-		 target_mv, target_ma);
+	dev_info(sm->dev,
+		 "direct charge started: PPS %d mV/%d mA, ibus limit %d mA\n",
+		 target_mv, target_ma,
+		 clamp_val(target_ma + SM5440_IBUS_MARGIN_MA, 0, 6350));
 	return 0;
 
 restore:
@@ -592,10 +680,10 @@ static void sm5440_work(struct work_struct *work)
 
 	if (!sm->active) {
 		/*
-		 * Off by default: the SM5714 switching charger owns the pack on the
-		 * fixed 9 V contract unless direct charging was asked for.
+		 * Opt-in: the SM5714 switching charger owns the pack on the fixed
+		 * 9 V contract until fast charging is switched on.
 		 */
-		if (!direct_charge) {
+		if (!sm5714_battery_fast_charge_enabled()) {
 			delay = msecs_to_jiffies(SM5440_RETRY_MS);
 			goto out;
 		}
@@ -613,6 +701,16 @@ static void sm5440_work(struct work_struct *work)
 		goto out;
 	}
 
+	/* The switch can go off while the pump runs: hand the pack back. */
+	if (!sm5714_battery_fast_charge_enabled()) {
+		sm5440_log_faults(sm);
+		sm5440_restore_switching(sm);
+		dev_info(sm->dev,
+			 "fast charging off: back to the fixed contract\n");
+		delay = msecs_to_jiffies(SM5440_RETRY_MS);
+		goto out;
+	}
+
 	/*
 	 * PPS sources leave the programmable contract unless the sink refreshes
 	 * its Request periodically. Samsung's downstream loop does this every
@@ -620,7 +718,7 @@ static void sm5440_work(struct work_struct *work)
 	 * seconds and the resulting VBUS step tripped REVBLK.  The refresh has to
 	 * keep the pump out of that step, which is what renegotiate_pps() is for.
 	 */
-	if (++sm->pps_ticks >= 2) {
+	if (++sm->pps_ticks >= SM5440_REFRESH_TICKS) {
 		sm->pps_ticks = 0;
 		ret = sm5440_renegotiate_pps(sm);
 		if (ret) {
@@ -738,9 +836,10 @@ static int sm5440_probe(struct i2c_client *client)
 		return ret;
 	schedule_delayed_work(&sm->work, msecs_to_jiffies(10000));
 
-	dev_info(sm->dev, "SM5440 direct charger device ID %#x, direct charging %s\n",
-		 id, direct_charge ? "enabled" :
-		      "disabled (set direct_charge=1 to enable)");
+	dev_info(sm->dev,
+		 "SM5440 direct charger device ID %#x, fast charging %s (cap %u mA)\n",
+		 id, sm5714_battery_fast_charge_enabled() ? "on" : "off",
+		 max_pps_ma);
 	return 0;
 }
 
