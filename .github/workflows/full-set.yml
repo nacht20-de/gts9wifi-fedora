@@ -45,8 +45,8 @@ jobs:
           set -euxo pipefail
 
           mkdir -p k r
-          gh release download "$KREL" --dir k --clobber
-          gh release download "$RREL" --dir r --clobber
+          gh release -R "$GITHUB_REPOSITORY" download "$KREL" --dir k --clobber
+          gh release -R "$GITHUB_REPOSITORY" download "$RREL" --dir r --clobber
 
           # The kernel's bundle checksums and the rootfs's tarball checksums
           # are both named SHA256SUMS; the combined release keeps both, so
@@ -63,11 +63,11 @@ jobs:
             exit 1
           }
 
-          gh release view "$REL" >/dev/null 2>&1 || \
-            gh release create "$REL" --title "$REL" --latest \
+          gh release -R "$GITHUB_REPOSITORY" view "$REL" >/dev/null 2>&1 || \
+            gh release -R "$GITHUB_REPOSITORY" create "$REL" --title "$REL" --latest \
               --notes "Everything needed to run Fedora on the Galaxy Tab S9 Wi-Fi in one release: the kernel RPM, the Android boot bundle, the TWRP flash zip, and the turnkey rootfs tarball — the verified pair from \`$KREL\` and \`$RREL\`.
 
           Install: see INSTALL.md in the repository. Flash the TWRP zip for the boot chain, install the rootfs with mk-internal-storage.sh; kernel and rootfs modules match.
 
           Checksums: SHA256SUMS covers the rootfs tarball, BUNDLE-SHA256SUMS covers the boot images."
-          gh release upload "$REL" --clobber k/* r/*
+          gh release -R "$GITHUB_REPOSITORY" upload "$REL" --clobber k/* r/*
