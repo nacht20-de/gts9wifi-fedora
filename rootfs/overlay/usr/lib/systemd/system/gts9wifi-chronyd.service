@@ -13,6 +13,11 @@ Type=forking
 ExecStartPre=/usr/bin/mkdir -p /var/lib/chrony /run/chrony
 ExecStart=/usr/sbin/chronyd
 ExecReload=/usr/bin/chronyc reload sources
+# On a fresh boot this starts while only usb0 exists: DNS is unavailable,
+# the pool lookup fails, and chrony never retries it on its own — leaving
+# the RTC-less tablet on a wrong clock (which then breaks rpm and TLS).
+# Reload sources until one answers.
+ExecStartPost=/bin/sh -c 'for i in $(seq 1 30); do chronyc -a reload sources >/dev/null 2>&1; [ "$(chronyc -c sources 2>/dev/null | wc -l)" -gt 0 ] && exit 0; sleep 10; done; true'
 RuntimeDirectory=chrony
 Restart=on-failure
 
