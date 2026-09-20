@@ -5,14 +5,13 @@ on:
     inputs:
       kernel_rpm_url:
         description: "Kernel RPM URL (defaults to the pinned release)"
-        # Placeholder until the first 7.2.6 kernel build is published: dispatch
-        # "Kernel build" with release_tag=kernel-7.2.6-gts9wifi-1, then fill in
-        # the RPM's real sha256 here.
+        # Pinned to the kernel-7.2.6-gts9wifi-1 release; re-pin together
+        # with the kernel whenever a new kernel build is published.
         default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.6-gts9wifi-1/linux-gts9wifi-7.2.6-0.1.fc44.aarch64.rpm"
         type: string
       kernel_sha256:
         description: "sha256 of the RPM"
-        default: "0000000000000000000000000000000000000000000000000000000000000000"
+        default: "75bcb06723b021b50e759e251101cf87c80cf920558038b42a8f1c3e6a83b0af"
         type: string
       release_tag:
         description: "Release tag to (re)publish the boot bundle and TWRP zip to, e.g. kernel-7.2.6-gts9wifi-1 (required: there is no artifact upload anymore)"
