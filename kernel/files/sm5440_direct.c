@@ -17,6 +17,7 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/power_supply.h>
+#include <linux/suspend.h>
 #include <linux/workqueue.h>
 
 /*
@@ -97,7 +98,7 @@
 #define SM5440_PPS_STEP_MA		250
 #define SM5440_IBUS_MARGIN_MA		300
 #define SM5440_PPS_V_STEP_MV		20
-#define SM5440_REFRESH_TICKS		2
+#define SM5440_REFRESH_TICKS		4
 
 static unsigned int max_pps_ma = SM5440_MAX_PPS_MA;
 module_param(max_pps_ma, uint, 0644);
@@ -159,6 +160,8 @@ struct sm5440_direct {
 	unsigned int pps_ticks;
 	unsigned int fails;
 	bool active;
+	bool suspending;
+	struct notifier_block pm_nb;
 };
 
 static int sm5440_update_bits(struct sm5440_direct *sm, u8 reg, u8 mask,
@@ -380,7 +383,8 @@ static int sm5440_pump_off(struct sm5440_direct *sm)
 
 static int sm5440_pump_on(struct sm5440_direct *sm)
 {
-	int status3;
+	int status3 = 0;
+	int i;
 	int ret;
 
 	ret = sm5440_update_bits(sm, SM5440_REG_CNTL5,
@@ -389,14 +393,22 @@ static int sm5440_pump_on(struct sm5440_direct *sm)
 	if (ret)
 		return ret;
 
-	msleep(100);
-	status3 = i2c_smbus_read_byte_data(sm->client, SM5440_REG_STATUS3);
-	if (status3 < 0)
-		return status3;
-	if (!(status3 & SM5440_STATUS3_VBUSPOK))
-		return -ENOLINK;
+	/*
+	 * VBUSPOK is set as soon as the pump starts pulling the bus down, which is
+	 * well before the 100 ms this used to sleep unconditionally.  Poll for it
+	 * instead, keeping the old worst case as the loop bound.
+	 */
+	for (i = 0; i < 5; i++) {
+		msleep(20);
+		status3 = i2c_smbus_read_byte_data(sm->client,
+						   SM5440_REG_STATUS3);
+		if (status3 < 0)
+			return status3;
+		if (status3 & SM5440_STATUS3_VBUSPOK)
+			return 0;
+	}
 
-	return 0;
+	return -ENOLINK;
 }
 
 /*
@@ -407,11 +419,18 @@ static int sm5440_pump_on(struct sm5440_direct *sm)
  */
 static int sm5440_wait_vbus_settled(struct sm5440_direct *sm, int target_mv)
 {
-	int vbus_mv;
+	int vbus_mv = 0;
 	int i;
 
+	/*
+	 * The pump is parked while this runs, so every millisecond here is charge
+	 * current the pack does not get.  The chip's bus ADC is already averaging
+	 * (see ADCCNTL1 in hw_init) and the source has normally re-applied its
+	 * output by now, so give it one conversion and then look, rather than
+	 * sleeping a fixed 100 ms per attempt and waiting up to three seconds.
+	 */
 	for (i = 0; i < 30; i++) {
-		msleep(100);
+		msleep(i ? 50 : 20);
 		vbus_mv = sm5440_adc_vbus_mv(sm);
 		if (vbus_mv < 0)
 			return vbus_mv;
@@ -715,8 +734,11 @@ static void sm5440_work(struct work_struct *work)
 	 * PPS sources leave the programmable contract unless the sink refreshes
 	 * its Request periodically. Samsung's downstream loop does this every
 	 * 2.5 seconds; without it the EP-T4510 fell back after about five
-	 * seconds and the resulting VBUS step tripped REVBLK.  The refresh has to
-	 * keep the pump out of that step, which is what renegotiate_pps() is for.
+	 * seconds and the resulting VBUS step tripped REVBLK.  Four seconds keeps
+	 * a margin under that fallback while halving how often the pump has to be
+	 * parked for the negotiation -- parked time is charge current the pack
+	 * never gets, and the parked window itself is kept as short as the chip's
+	 * bus ADC allows (see sm5440_wait_vbus_settled / sm5440_pump_on).
 	 */
 	if (++sm->pps_ticks >= SM5440_REFRESH_TICKS) {
 		sm->pps_ticks = 0;
@@ -776,7 +798,9 @@ static void sm5440_work(struct work_struct *work)
 			     vbus, ibus, vbat,
 			     die_temp / 10, abs(die_temp % 10));
 out:
-	schedule_delayed_work(&sm->work, delay);
+	/* The PM notifier owns rescheduling while the system is suspending. */
+	if (!sm->suspending)
+		schedule_delayed_work(&sm->work, delay);
 }
 
 static void sm5440_cancel_work(void *data)
@@ -786,6 +810,47 @@ static void sm5440_cancel_work(void *data)
 	cancel_delayed_work_sync(&sm->work);
 	if (sm->active)
 		sm5440_restore_switching(sm);
+}
+
+static void sm5440_unregister_pm(void *data)
+{
+	struct sm5440_direct *sm = data;
+
+	unregister_pm_notifier(&sm->pm_nb);
+}
+
+/*
+ * The i2c adapter this charger sits on is suspended with the system, so the poll
+ * must neither run nor be scheduled once the tablet is going down: a poll during
+ * suspend trips the i2c core's "Transfer while suspended" warning, and a pump
+ * left running would lose its PPS contract anyway because nothing refreshes it
+ * while the bus is gone.  Park the pump, hand the pack back to the switching
+ * charger, and start polling again after resume.
+ */
+static int sm5440_pm_notify(struct notifier_block *nb, unsigned long action,
+			    void *data)
+{
+	struct sm5440_direct *sm = container_of(nb, struct sm5440_direct, pm_nb);
+
+	switch (action) {
+	case PM_SUSPEND_PREPARE:
+		sm->suspending = true;
+		cancel_delayed_work_sync(&sm->work);
+		if (sm->active) {
+			sm5440_pump_off(sm);
+			sm5440_restore_switching(sm);
+			dev_info(sm->dev,
+				 "system suspending: back to the fixed contract\n");
+		}
+		break;
+	case PM_POST_SUSPEND:
+		sm->suspending = false;
+		schedule_delayed_work(&sm->work,
+				      msecs_to_jiffies(SM5440_POLL_MS));
+		break;
+	}
+
+	return NOTIFY_DONE;
 }
 
 static int sm5440_probe(struct i2c_client *client)
@@ -834,6 +899,16 @@ static int sm5440_probe(struct i2c_client *client)
 	ret = devm_add_action_or_reset(sm->dev, sm5440_cancel_work, sm);
 	if (ret)
 		return ret;
+
+	sm->pm_nb.notifier_call = sm5440_pm_notify;
+	ret = register_pm_notifier(&sm->pm_nb);
+	if (ret)
+		return dev_err_probe(sm->dev, ret,
+				     "cannot register the PM notifier\n");
+	ret = devm_add_action_or_reset(sm->dev, sm5440_unregister_pm, sm);
+	if (ret)
+		return ret;
+
 	schedule_delayed_work(&sm->work, msecs_to_jiffies(10000));
 
 	dev_info(sm->dev,
