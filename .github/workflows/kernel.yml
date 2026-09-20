@@ -113,7 +113,11 @@ jobs:
           gh release view "$REL" >/dev/null 2>&1 || \
             gh release create "$REL" --title "$REL" \
               --notes "Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          # Rename the bundle checksums so kernel and rootfs runs can publish
+          # into the SAME release tag without clobbering each other's
+          # SHA256SUMS asset (the rootfs run uploads its own).
+          mv out-bundle/SHA256SUMS out-bundle/BUNDLE-SHA256SUMS
           gh release upload "$REL" --clobber \
             out-kernel/*.rpm \
-            out-bundle/*.img out-bundle/SHA256SUMS out-bundle/BUILD-METADATA.txt \
+            out-bundle/*.img out-bundle/BUNDLE-SHA256SUMS out-bundle/BUILD-METADATA.txt \
             out-twrp/*.zip
