@@ -25,6 +25,7 @@ reused, and a retired number is simply absent rather than reassigned
 | 17 | Speaker volume capped (~−19 dB) | fixed — Cirrus speaker-protection DSP firmware now loads |
 | 18 | `/`, `/etc`, `/usr` owned by the image build user | fixed — this had silently disabled *every* `tmpfiles.d` entry |
 | 19 | Kernel log flooded by ADSP handover messages | fixed — the repeat is logged at debug level now |
+| 20 | Wi-Fi dead on the 7.2.1–7.2.6 stable kernels | open — pinned to 7.2.0 |
 
 Also outstanding, not in the numbered register:
 
@@ -283,6 +284,20 @@ Note that `rpm -a --setugids --setperms` exits 255 with a handful of
 that do not exist in the built image. This is benign — rpm still restores
 everything it can — so the build treats a non-zero exit as a note rather than an
 error.
+
+### 20 — Wi-Fi dead on the 7.2.1–7.2.6 stable kernels
+
+On every 7.2.1+ kernel the WCN6855 loses MHI power-up deterministically:
+the link trains and the chip identifies (`wcn6855 hw2.1`), then MHI dies
+waiting for the device (`did not load image over BHI, -5` / `did not enter
+READY state`, -110) — on cold boot, warm boot and PCI rescan alike, with
+Bluetooth on the same module unaffected.  Plain 7.2.0 boots Wi-Fi in under a
+second with the identical DTS, patches, config and firmware, so the port
+bases on 7.2.0 (`kernel-7.2.0-gts9wifi-1`) until the culprit is named.
+Ruled out on hardware: the posted-write flush fixes (reverted in a test
+kernel — no change), ASPM (disabled — failure persists), the pipe-mux
+unpark sentinel, the pwrseq/pwrctrl DT wiring.  The regression is isolated
+to the 7.2.1–7.2.6 stable deltas.
 
 ### 19 — Kernel log flooded by ADSP handover messages
 
