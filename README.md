@@ -147,8 +147,10 @@ register in `docs/Known-Issues.md`, not to GitHub issue numbers.
 
 ## Prior art
 
-- **Azkali's gts9wifi port** — a mainline tree plus a firmware payload.
-- **agcarbajo's port** — kernel and userspace subsystems.
+- [Azkali](https://github.com/Azkali)'s gts9wifi port — a mainline tree plus the
+  firmware payload ([Azkali/gts9wifi-firmware](https://github.com/Azkali/gts9wifi-firmware))
+  this port's speaker-protection and VPU staging pulls from.
+- [agcarbajo](https://github.com/agcarbajo)'s port — kernel and userspace subsystems.
 
 ---
 
