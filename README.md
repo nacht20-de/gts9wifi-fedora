@@ -55,7 +55,9 @@ probe, ambient-light sensing over D-Bus, password login.
 ## Getting the images
 
 [Releases](https://github.com/nacht20-de/gts9wifi-fedora/releases) carries
-everything needed:
+everything needed. The `gts9wifi-fedora-*` full-set release has all of it in
+one place — kernel RPM, boot bundle, TWRP zip and rootfs tarball, verified to
+match. The pieces are also published separately:
 
 - **`rootfs-f44-gnome-…`** — the turnkey rootfs tarball (~1.8 GB): GNOME
   Workstation plus gdm, the device stack, all device firmware, and kernel
