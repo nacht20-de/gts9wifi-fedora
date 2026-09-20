@@ -26,9 +26,28 @@ reused, and a retired number is simply absent rather than reassigned
 | 18 | `/`, `/etc`, `/usr` owned by the image build user | fixed — this had silently disabled *every* `tmpfiles.d` entry |
 | 19 | Kernel log flooded by ADSP handover messages | fixed — the repeat is logged at debug level now |
 
-Also outstanding but not in the numbered register: the **S Pen tilt sensor**, the Android **`/vendor`** (`super`) partition is not
-mounted, **SELinux** runs permissive, and **file capabilities are lost** when
-the rootfs is packed. See the sections below.
+Also outstanding, not in the numbered register:
+
+- the S Pen tilt sensor;
+- the Android `/vendor` (`super`) partition is not mounted — needs a
+  `make-dynpart-mappings` equivalent (see below);
+- SELinux runs permissive;
+- file capabilities are lost when the rootfs is packed (see below);
+- the VPU encoder node `/dev/video18` is untested;
+- early-boot timestamps read 1970 — the RTC has no valid time before NTP;
+- `gts9wifi-adsp-boot.service` ships disabled: starting the ADSP late can hang
+  or reset the SoC, and it needs root-causing;
+- the patched userspace is built from source at image build time rather than
+  shipped from a Fedora repository — `hexagonrpcd` (two patches),
+  `iio-sensor-proxy` with libssc, and `libssc`/`pd-mapper` (not in Fedora at
+  all); a COPR is the obvious home;
+- the GNOME extension ships as a plain directory — GNOME Shell does not rescan
+  extension directories at runtime, so it needs proper packaging;
+- browsers and VLC still decode in software: the VPU has no VA-API driver. Two
+  routes: a VA-API driver over the stateful M2M node (the surviving
+  VA-API-over-V4L2 projects are ~5,000–6,000 lines of C for three codecs, but
+  both target the stateless API), or a Chromium build with
+  `use_v4l2_codec=true` (an unofficial build path, unsupported by Google).
 
 ---
 
@@ -66,7 +85,7 @@ libfprint backend.
 **GNOME's unlock path is already present** — Settings enrolment, GDM via PAM
 and the lock screen via gnome-shell — and only needs libfprint to see a reader.
 
-Two things to know if you pick this up:
+Notes:
 
 - The modules load at boot through `modules-load.d/gts9wifi-fingerprint.conf`,
   so `/dev/esfp0` and `/dev/k250a` exist on a plain boot. They need no
@@ -124,9 +143,7 @@ device rather than only in the build.
 
 Not a fuel-gauge bug. The SM5714 charger's **float voltage was never
 programmed**, so the pack was charged 60 mV short of full. Once programmed, the
-tablet reaches 100 %. A battery percentage cap is usually undercharging, not a
-gauge problem — check the charger's termination voltage before suspecting the
-gauge.
+tablet reaches 100 %.
 
 ### 2 — No palm rejection (S Pen)
 
@@ -165,10 +182,8 @@ The RNDIS gadget was converted to ECM.
 
 ### 7 — Weak 5 GHz Wi-Fi RX
 
-The ath11k board-data (BDF) file was substituted. Three things that *looked*
-like the cause were not, and the Samsung BDF could not rescue it — board data
-selection is worth testing systematically rather than assuming the vendor file
-is best.
+The ath11k board-data (BDF) file was substituted. Three plausible causes were
+ruled out first; the Samsung BDF itself made ath11k worse.
 
 ### 9 — Discord/Roblox unreachable (DPI)
 
@@ -197,8 +212,7 @@ group-writable so no privilege prompt is needed. There is deliberately no Quick
 Settings toggle.
 
 An earlier "the screen stays dark after a gesture wake" report was **not** a
-double-tap defect — it was a broken resume path that restarted nothing. Broken
-resume mimics feature defects.
+double-tap defect — it was a broken resume path that restarted nothing.
 
 ### 16 — Hardware video decode (iris / VPU 3.0)
 

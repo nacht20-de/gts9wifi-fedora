@@ -17,9 +17,8 @@ Open the Extensions app, find **gnome-gts9wifi** and press its settings button, 
 gnome-extensions prefs gnome-gts9wifi@tabs9linux
 ```
 
-Both switches are on that page. If a switch will not stay where you put it, the write was
-rejected and the page snapped it back rather than pretending it worked — check that the
-rootfs on the tablet is new enough to carry the control you are toggling.
+Both switches are on that page. If a switch snaps back, the write was rejected — the rootfs on the tablet
+may predate the control.
 
 ## From a terminal
 
@@ -55,8 +54,8 @@ echo 1 | sudo tee /sys/bus/i2c/devices/6-0049/fast_charge           # fast charg
 echo 0 | sudo tee /sys/bus/i2c/devices/6-0049/fast_charge           # off
 ```
 
-Remember that these are lost at the next boot unless the value is also saved in
-`/var/lib/gts9wifi/` (which is what `gts9wifi-device-control set` does for you).
+These are lost at the next boot unless the value is also saved under
+`/var/lib/gts9wifi/` — which is what `gts9wifi-device-control set` does.
 
 ## Fast charging in detail
 
@@ -71,12 +70,12 @@ Remember that these are lost at the next boot unless the value is also saved in
   at the spec-safe 3 A limit.
 - Fast charging only applies at lower charge. The pump will not start above roughly 80 %
   (4.35 V) and stops at 90 %, so near full you may see the switch on while the tablet charges
-  at the ordinary rate — that is the battery protecting itself, not a fault.
+  at the ordinary rate — the pump's own limits, not a fault.
 - The switch is safe to leave on: turning it off at any moment parks the pump and hands the
   pack straight back to the switching charger.
 
 ## If a control is missing
 
-`gts9wifi-device-control list` is the authority on what your rootfs supports. The helper, its
+`gts9wifi-device-control list` shows what the rootfs supports. The helper, its
 udev rules and the kernel attributes ship from this repository's `rootfs/overlay` and
 `kernel/files`, so a rootfs older than the control simply will not list it.

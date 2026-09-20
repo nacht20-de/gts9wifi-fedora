@@ -30,8 +30,6 @@ lives in `docs/`:
 | Page | Contents |
 |---|---|
 | [Known Issues](docs/Known-Issues.md) | the issue register referenced by commits and scripts |
-| [TODO](docs/TODO.md) | what is outstanding, and where each investigation stopped |
-| [Porting Guide](docs/Porting-Guide.md) | porting Linux to a different Android tablet |
 | [Hardware Notes](docs/Hardware-Notes.md) | per-subsystem debugging notes |
 | [Device Controls](docs/Device-Controls.md) | the double-tap-to-wake and fast-charging switches |
 | [Port Kit](docs/PORT-KIT.md) | the extraction inventory behind the port (developer notes) |
@@ -116,7 +114,7 @@ thing you notice is Wi-Fi and Bluetooth being dead.
 | `boot/` | `build-bundle.sh` (Android boot-image-v4 bundle), cmdline, bootconfig, dracut config, initramfs USB-net module |
 | `specs/` | RPM specs carrying the vendored patches (`hexagonrpcd`, `iio-sensor-proxy`, `libcamera-hi1337`) |
 | `tools/` | vendored AOSP `avbtool`/`mkbootimg`, TWRP zip packer and installer |
-| `docs/` | issue register, TODO, porting guide, hardware notes, port kit |
+| `docs/` | issue register, hardware notes, device controls, port kit |
 
 `kernel/files/spu/spss-irq/` and `specs/libcamera-hi1337/` carry their own
 READMEs.
