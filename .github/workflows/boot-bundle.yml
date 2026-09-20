@@ -13,6 +13,14 @@ on:
         description: "sha256 of the RPM"
         default: "75bcb06723b021b50e759e251101cf87c80cf920558038b42a8f1c3e6a83b0af"
         type: string
+      firmware_url:
+        description: "Device firmware payload (GPU/ADSP blobs for the initramfs)"
+        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-2/firmware-samsung-gts9wifi-v2.tar.gz"
+        type: string
+      firmware_sha256:
+        description: "sha256 of the firmware payload"
+        default: "30cace40556fdaf1577c76bedc1b1a6236f4acc23e9300253b3834fa7ed4bab5"
+        type: string
       release_tag:
         description: "Release tag to (re)publish the boot bundle and TWRP zip to, e.g. kernel-7.2.6-gts9wifi-1 (required: there is no artifact upload anymore)"
         default: ""
@@ -48,6 +56,8 @@ jobs:
             -e KVER \
             -e KERNEL_RPM_URL='${{ inputs.kernel_rpm_url }}' \
             -e KERNEL_SHA256='${{ inputs.kernel_sha256 }}' \
+            -e FIRMWARE_URL='${{ inputs.firmware_url }}' \
+            -e FIRMWARE_SHA256='${{ inputs.firmware_sha256 }}' \
             -v "$PWD:/work" -w /work \
             quay.io/fedora/fedora:44 \
             bash -lc '
@@ -60,6 +70,16 @@ jobs:
               dnf -y install /tmp/kernel.rpm
               depmod -a "$KVER"
               ls /boot/vmlinuz-"$KVER" /boot/dtbs-7.2.6-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb
+
+              # --- device firmware: the initramfs needs it ---
+              # The Adreno driver is built-in and probes during the initramfs,
+              # before the real root (which carries the payload) is mounted, so
+              # gts9wifi.conf install_items pulls the a740 zap/GMU files into
+              # the image.  Without this extract dracut-install silently drops
+              # them and GNOME comes up on llvmpipe.
+              curl -sfL "$FIRMWARE_URL" -o /tmp/fw.tar.gz
+              echo "$FIRMWARE_SHA256  /tmp/fw.tar.gz" | sha256sum -c -
+              tar xzf /tmp/fw.tar.gz -C /
 
               # --- initramfs ---
               cp -a /work/boot/dracut/90gts9wifi-usbnet /usr/lib/dracut/modules.d/
