@@ -104,6 +104,14 @@ if [ "$desktop" = "gnome" ]; then
     # renders letterspaced (verified on hardware, 2026-09-05).
     dnf -y --installroot="$rootfs" --use-host-config --setopt=tsflags=nodocs \
         install adwaita-mono-fonts adwaita-sans-fonts
+    # The camera stack: the Workstation group installs no libcamera userspace
+    # at all — Snapshot reaches cameras through PipeWire's libcamera monitor,
+    # so without these the app reports "connect a camera" while the kernel
+    # side probes fine.  v4l-utils is also what the rear-focus udev rule
+    # drives; without it the rule is a silent no-op.
+    dnf -y --installroot="$rootfs" --use-host-config --setopt=tsflags=nodocs \
+        install libcamera libcamera-ipa libcamera-tools \
+        pipewire-plugin-libcamera v4l-utils
 fi
 
 echo ">>> Installing native build dependencies (build container only)"
