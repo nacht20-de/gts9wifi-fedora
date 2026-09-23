@@ -1,0 +1,30 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Bring the display back in sleep mode.
+#
+# The power key runs this instead of the sleep action while the display is off,
+# which is what gts9wifi-power-key-watch keeps in step.  That split is what makes
+# waking reliable: the sleep action cannot be used for it, because by the time it
+# runs the display may already be back, and it would then blank the tablet again.
+#
+# The session is deliberately left locked - waking is not unlocking, and the lock
+# screen asks for the password as usual.
+set -u
+
+display_config=org.gnome.Mutter.DisplayConfig
+display_path=/org/gnome/Mutter/DisplayConfig
+
+mode=$(busctl --user get-property "$display_config" "$display_path" \
+	"$display_config" PowerSaveMode 2>/dev/null) || exit 0
+
+# 0 is already on, and -1 means the output cannot be blanked this way at all, so
+# there is nothing to undo for either.
+case "$mode" in
+*i\ [123])
+	busctl --user set-property "$display_config" "$display_path" \
+		"$display_config" PowerSaveMode i 0 2>/dev/null || true
+	;;
+esac
+
+exit 0

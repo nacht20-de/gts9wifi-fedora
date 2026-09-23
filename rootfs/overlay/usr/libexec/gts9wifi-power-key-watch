@@ -1,0 +1,47 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Point the power key at the right action for the display, while sleep mode is on.
+#
+# The power key has two jobs in sleep mode: sleep the tablet while the display is
+# on - including on the lock screen, where a tablet is most often put down - and
+# bring the display back while it is off.  One action cannot do both, because an
+# action that runs while the display is off cannot tell that it was the press
+# which just woke the display: Mutter or gsd may already have brought the display
+# back by the time the command runs, so the sleep action would blank the tablet
+# again and it could not be woken with the power button at all.
+#
+# So the key is pointed at the wake action while the display is off, and at the
+# sleep action while it is on.  Which of the two it is running is then decided
+# here rather than guessed at inside the action, and each action does exactly one
+# thing.
+#
+# This follows the display rather than only the sleep action, because an ordinary
+# idle blank - which locks and blanks without the power button being involved -
+# has to be wakeable the same way.
+set -u
+
+helper=/usr/libexec/gts9wifi-device-control
+display_config=org.gnome.Mutter.DisplayConfig
+display_path=/org/gnome/Mutter/DisplayConfig
+
+# The display is off in more than one way (0 on, 1 standby, 2 suspend, 3 off),
+# and -1 means the output cannot be blanked that way at all.
+want=
+while :; do
+	mode=$(busctl --user get-property "$display_config" "$display_path" \
+		"$display_config" PowerSaveMode 2>/dev/null) || mode=
+	case "$mode" in
+	*i\ 0) next=sleep ;;	# display on: the key sleeps the tablet
+	*i\ [123]) next=wake ;;	# display off: the key brings it back
+	*) next= ;;
+	esac
+
+	if [ -n "$next" ] && [ "$next" != "$want" ]; then
+		if "$helper" power-key-command "$next" 2>/dev/null; then
+			want=$next
+		fi
+	fi
+
+	sleep 2
+done

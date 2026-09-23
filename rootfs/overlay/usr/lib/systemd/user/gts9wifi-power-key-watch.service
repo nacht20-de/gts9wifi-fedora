@@ -1,0 +1,14 @@
+[Unit]
+Description=Keep the gts9wifi sleep key in step with the display
+# Sleep mode is a per-user setting, so this follows the user session it was
+# turned on in.
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/gts9wifi-power-key-watch
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

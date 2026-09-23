@@ -43,6 +43,7 @@ media_keys_schema=org.gnome.settings-daemon.plugins.media-keys
 power_key_path=/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-gts9wifi-power/
 power_key_schema=org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$power_key_path
 power_key_command=/usr/libexec/gts9wifi-power-key-sleep
+power_key_wake_command=/usr/libexec/gts9wifi-power-key-wake
 
 # name|group|label|description|default|target|kind
 CONTROLS='
@@ -141,6 +142,40 @@ power_key_list_update() { # power_key_list_update add|remove
 	fi
 }
 
+# Point the power key at the sleep action or at the wake action.
+#
+# Which of the two the key runs depends on the display, and that is the watcher's
+# job - but the value can only be handed to gsd by registering the binding again,
+# because gsd reads a custom binding when it registers it.  The binding is always
+# registered for the lock screen (enable-in-lockscreen), so the key works on the
+# lock screen too: that is where a tablet is most often put down, and without it
+# the key is inert there because gsd only runs a custom binding in the unlocked
+# modes.
+power_key_apply() { # power_key_apply <command>
+	have_session || return 0
+	cmd=$1
+	gsettings set "$power_key_schema" name 'Sleep' 2>/dev/null || true
+	gsettings set "$power_key_schema" command "$cmd" 2>/dev/null || true
+	gsettings set "$power_key_schema" binding 'XF86PowerOff' 2>/dev/null || true
+	gsettings set "$power_key_schema" enable-in-lockscreen true 2>/dev/null || true
+	power_key_list_update remove
+	power_key_list_update add
+}
+
+# The watcher keeps the binding's lock-screen registration in step with the
+# display; it only has anything to do while sleep mode is on.
+power_key_watch() { # power_key_watch start|stop
+	have_session || return 0
+	command -v systemctl >/dev/null 2>&1 || return 0
+	case "$1" in
+	start)
+		systemctl --user daemon-reload 2>/dev/null || true
+		systemctl --user enable --now gts9wifi-power-key-watch.service 2>/dev/null || true
+		;;
+	stop) systemctl --user disable --now gts9wifi-power-key-watch.service 2>/dev/null || true ;;
+	esac
+}
+
 # The power key is grabbed by gnome-settings-daemon (setting "power" plus its
 # static twin "power-static", which defaults to XF86PowerOff), so whoever else
 # wants that key has to make gsd let go of it first.  gsd only looks at a
@@ -189,14 +224,17 @@ power_button_sleep_on() {
 	gsettings set "$power_key_schema" name 'Sleep' 2>/dev/null || true
 	gsettings set "$power_key_schema" command "$power_key_command" 2>/dev/null || true
 	gsettings set "$power_key_schema" binding 'XF86PowerOff' 2>/dev/null || true
-	power_key_list_update add
+	power_key_apply "$power_key_command"
+	power_key_watch start
 }
 
 # Put the session back to suspending on the power button.
 power_button_sleep_off() {
 	have_session || return 0
 
+	power_key_watch stop
 	power_key_list_update remove
+	gsettings set "$power_key_schema" enable-in-lockscreen false 2>/dev/null || true
 	gsettings set "$power_schema" power-button-action 'suspend' 2>/dev/null || true
 
 	restored=$(recalled sleep-inactive-ac-timeout)
@@ -331,6 +369,16 @@ apply_of() { # apply_of <kind> <name> <target> <default>
 command=${1:-list}
 name_arg=${2:-}
 value_arg=${3:-}
+
+# Internal verb for the watcher above; not part of the user-facing interface.
+if [ "$command" = power-key-command ]; then
+	case "$name_arg" in
+	sleep) power_key_apply "$power_key_command" ;;
+	wake) power_key_apply "$power_key_wake_command" ;;
+	*) echo "gts9wifi-device-control: expected sleep or wake" >&2; exit 2 ;;
+	esac
+	exit 0
+fi
 
 case "$command" in
 list|apply|get|set) ;;

@@ -77,11 +77,23 @@ the system running instead:
 | Wi-Fi, ssh, downloads | dropped until woken | carry on |
 | Sitting idle afterwards | suspends after the timeout in Settings (5 minutes on this port) | never suspends |
 
-Sleeping is a lock rather than a suspend: the session is locked, and gnome-settings-daemon
-blanks the displays as soon as the screen shield comes up — the same path GNOME takes when it
-blanks on idle. Any input brings the screen back, still locked, so unlocking is the usual
-password or fingerprint prompt. Pressing the power button while it is already asleep is
-therefore the way to wake it, not another sleep.
+Sleeping is a lock rather than a suspend: the session is locked and the screen is turned off,
+while the system keeps running. Locking is what blanks the screen — gnome-settings-daemon
+blanks the displays as soon as the screen shield comes up — and at the lock screen, where the
+shield is already up and nothing changes, the displays are blanked directly instead. Any
+input brings the screen back, still locked, so unlocking is the usual password or fingerprint
+prompt.
+
+The power key does both jobs, and which action it runs follows the display: while the screen
+is on it sleeps the tablet, including at the lock screen, and while the screen is off it wakes
+it. That split lives in `/usr/libexec/gts9wifi-power-key-watch`, a user service this switch
+turns on. It is needed because one action cannot do both: by the time an action runs the
+display may already be back, and sleeping it again would leave the tablet impossible to wake
+with the power button.
+
+One limit of sleeping: on GNOME a *touch* does not wake the display — keyboard and pointer
+input do — so double-tap-to-wake applies to a suspended tablet, not to a sleeping one. Use
+the power button, or any key, to wake a sleeping tablet.
 
 Because "keeps running" has to include staying awake on its own, this switch also sets the
 idle suspend timeout to *never* while it is on. Your own timeout is saved and put back when
