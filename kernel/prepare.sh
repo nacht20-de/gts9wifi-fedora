@@ -159,7 +159,7 @@ config FINGERPRINT_EL721\
 \tdepends on OF\
 ' drivers/misc/Kconfig
 grep -q 'egis_el721.o' drivers/misc/Makefile || \
-    echo 'obj-$(CONFIG_FINGERPRINT_EL721)\t+= egis_el721.o' >> drivers/misc/Makefile
+    printf 'obj-$(CONFIG_FINGERPRINT_EL721)\t+= egis_el721.o\n' >> drivers/misc/Makefile
 
 # Samsung K250A secure element (snvm): the embedded SE carrying the credential
 # HwVault uses to derive fingerprint template keys, reached by the EL721
@@ -182,7 +182,7 @@ config SEC_SNVM_WAKELOCK_METHOD\
 \tdefault 0\
 ' drivers/misc/Kconfig
 grep -q 'misc/snvm' drivers/misc/Makefile || \
-    echo 'obj-$(CONFIG_STAR_K250A_LEGO)\t+= snvm/' >> drivers/misc/Makefile
+    printf 'obj-$(CONFIG_STAR_K250A_LEGO)\t+= snvm/\n' >> drivers/misc/Makefile
 
 # Secure-processor (SPSS/SPU) stack.  The fingerprint stack's Keymaster/StrongBox
 # services run on Samsung's secure processor, for which upstream has no driver
@@ -215,7 +215,7 @@ config QCOM_SPSS\
 \tdepends on ARCH_QCOM && REMOTEPROC && QCOM_SCM\
 ' drivers/remoteproc/Kconfig
 grep -q 'qcom_spss.o' drivers/remoteproc/Makefile || \
-    echo 'obj-$(CONFIG_QCOM_SPSS)\t+= qcom_spss.o' >> drivers/remoteproc/Makefile
+    printf 'obj-$(CONFIG_QCOM_SPSS)\t+= qcom_spss.o\n' >> drivers/remoteproc/Makefile
 
 grep -q 'QCOM_GLINK_SPSS' drivers/rpmsg/Kconfig || sed -i '/^endmenu$/i \
 config QCOM_GLINK_SPSS\
@@ -223,7 +223,7 @@ config QCOM_GLINK_SPSS\
 \tdepends on RPMSG_QCOM_GLINK\
 ' drivers/rpmsg/Kconfig
 grep -q 'qcom_glink_spss.o' drivers/rpmsg/Makefile || \
-    echo 'obj-$(CONFIG_QCOM_GLINK_SPSS)\t+= qcom_glink_spss.o' >> drivers/rpmsg/Makefile
+    printf 'obj-$(CONFIG_QCOM_GLINK_SPSS)\t+= qcom_glink_spss.o\n' >> drivers/rpmsg/Makefile
 
 grep -q 'QCOM_SPCOM' drivers/soc/qcom/Kconfig || sed -i '/^endmenu$/i \
 config QCOM_SPCOM\
@@ -239,11 +239,11 @@ config QCOM_SPSS_IRQ\
 \tdepends on ARCH_QCOM\
 ' drivers/soc/qcom/Kconfig
 grep -q 'spcom.o' drivers/soc/qcom/Makefile || \
-    echo 'obj-$(CONFIG_QCOM_SPCOM)\t+= spcom.o' >> drivers/soc/qcom/Makefile
+    printf 'obj-$(CONFIG_QCOM_SPCOM)\t+= spcom.o\n' >> drivers/soc/qcom/Makefile
 grep -q 'spss_utils.o' drivers/soc/qcom/Makefile || \
-    echo 'obj-$(CONFIG_QCOM_SPSS_UTILS)\t+= spss_utils.o' >> drivers/soc/qcom/Makefile
+    printf 'obj-$(CONFIG_QCOM_SPSS_UTILS)\t+= spss_utils.o\n' >> drivers/soc/qcom/Makefile
 grep -q 'qcom_spss_irq.o' drivers/soc/qcom/Makefile || \
-    echo 'obj-$(CONFIG_QCOM_SPSS_IRQ)\t+= qcom_spss_irq.o' >> drivers/soc/qcom/Makefile
+    printf 'obj-$(CONFIG_QCOM_SPSS_IRQ)\t+= qcom_spss_irq.o\n' >> drivers/soc/qcom/Makefile
 
 # drivers/dma-buf/heaps/Kconfig is included as a fragment and has no endmenu,
 # so this symbol is appended rather than inserted.
@@ -254,7 +254,7 @@ config DMABUF_HEAPS_SP_HLOS
 	depends on DMABUF_HEAPS
 SP_HLOS_KCONFIG
 grep -q 'qcom_sp_hlos_heap.o' drivers/dma-buf/heaps/Makefile || \
-    echo 'obj-$(CONFIG_DMABUF_HEAPS_SP_HLOS)\t+= qcom_sp_hlos_heap.o' >> drivers/dma-buf/heaps/Makefile
+    printf 'obj-$(CONFIG_DMABUF_HEAPS_SP_HLOS)\t+= qcom_sp_hlos_heap.o\n' >> drivers/dma-buf/heaps/Makefile
 
 # Kernel release tag must match the rootfs modules (vermagic ABI).
 echo "-gts9wifi" > localversion-gts9wifi
