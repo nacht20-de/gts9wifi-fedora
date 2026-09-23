@@ -1,13 +1,15 @@
 # Device controls
 
-Two tablet settings live in the kernel and are exposed by a small helper,
-`/usr/libexec/gts9wifi-device-control`. The GNOME extension's settings page is built from
-that helper's table, so the GUI and a terminal drive exactly the same switches.
+This port's tablet settings live behind one small helper,
+`/usr/libexec/gts9wifi-device-control` (most of them in the kernel, where the drivers
+keep them). The GNOME extension's settings page is built from that helper's table, so the
+GUI and a terminal drive exactly the same switches.
 
 | Control | Group | What it does | Default |
 |---|---|---|---|
 | Double tap to wake | Touchscreen | Wake the tablet from suspend by double tapping the screen | On |
 | Fast charging | Power | Charges the battery faster by drawing more power from your charger. A 5 A USB-C cable is recommended | Off |
+| Sleep instead of suspend | Power | The power button turns the screen off and locks the tablet but leaves it running, so Wi-Fi and downloads carry on. Off suspends the tablet, which is stock but drops it off the network until you wake it | Off |
 
 ## From GNOME
 
@@ -27,6 +29,7 @@ gts9wifi-device-control list                 # every control, its label and its 
 gts9wifi-device-control get fast-charge
 gts9wifi-device-control set fast-charge 1    # on
 gts9wifi-device-control set fast-charge 0    # off
+gts9wifi-device-control set power-button 1   # power button sleeps instead of suspending
 gts9wifi-device-control apply                # re-apply every saved value
 ```
 
@@ -56,6 +59,39 @@ echo 0 | sudo tee /sys/bus/i2c/devices/6-0049/fast_charge           # off
 
 These are lost at the next boot unless the value is also saved under
 `/var/lib/gts9wifi/` — which is what `gts9wifi-device-control set` does.
+
+The power button has no kernel file of its own: it is what GNOME does with a key press, so
+that switch changes GNOME's settings instead. See below.
+
+## Power button: suspend or sleep
+
+Out of the box the power button suspends the tablet, which is what GNOME does. This port has
+no wake-on-Wi-Fi, so a suspended tablet is **off the network**: ssh, downloads and anything
+else remote stop until somebody presses the button again. **Sleep instead of suspend** keeps
+the system running instead:
+
+| | Suspend (off, default) | Sleep (on) |
+|---|---|---|
+| Power button | suspends the tablet | locks the session and turns the screen off |
+| Screen | off | off |
+| Wi-Fi, ssh, downloads | dropped until woken | carry on |
+| Sitting idle afterwards | suspends after the timeout in Settings (5 minutes on this port) | never suspends |
+
+Sleeping is a lock rather than a suspend: the session is locked, and gnome-settings-daemon
+blanks the displays as soon as the screen shield comes up — the same path GNOME takes when it
+blanks on idle. Any input brings the screen back, still locked, so unlocking is the usual
+password or fingerprint prompt. Pressing the power button while it is already asleep is
+therefore the way to wake it, not another sleep.
+
+Because "keeps running" has to include staying awake on its own, this switch also sets the
+idle suspend timeout to *never* while it is on. Your own timeout is saved and put back when
+you switch off again.
+
+One limit: the setting is a per-user GNOME setting, so it governs the power key inside a
+session. At the login screen no user session owns that key, so logind's own action applies
+there; the helper writes the saved choice to
+`/etc/systemd/logind.conf.d/10-gts9wifi-power-key.conf` at boot, where `ignore` means sleep
+and `suspend` means stock.
 
 ## Fast charging in detail
 

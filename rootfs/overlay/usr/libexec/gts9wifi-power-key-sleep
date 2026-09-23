@@ -1,0 +1,56 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# What the power button does in "sleep" mode on this port.
+#
+# gnome-gts9wifi offers a choice between suspending and sleeping on the power
+# button.  Suspend is what GNOME does on its own; sleeping is what this script
+# does, and it is deliberately much less than a suspend: the session is locked
+# and nothing else happens, because a tablet that stays awake keeps its Wi-Fi
+# link and its remote access, where a suspended one drops off the network.
+#
+# Locking is enough to turn the screen off: gnome-settings-daemon blanks the
+# displays as soon as the screen shield becomes active (its
+# handle_screensaver_active() switches to the blank idle mode), which is the
+# same path GNOME takes when it blanks on idle.  Sleeping is therefore
+#
+#     loginctl lock-session
+#
+# and waking is any input at all: the display comes back and, because the
+# session is now locked, this script leaves it alone.  That is why the second
+# press of the power button is the way back rather than another sleep.
+#
+# This is only ever run as the keybinding owned by the power-button control in
+# /usr/libexec/gts9wifi-device-control, which sets it up and takes it away
+# again when the user switches back to suspending.
+set -u
+
+session=${XDG_SESSION_ID:-}
+
+# Already locked: the user is waking the tablet, not sleeping it.
+locked=no
+if [ -n "$session" ]; then
+	locked=$(loginctl show-session "$session" -p LockedHint --value 2>/dev/null) || locked=no
+fi
+if [ "$locked" = yes ]; then
+	exit 0
+fi
+
+# loginctl delivers this to the session, where gnome-shell shows the screen
+# shield and gnome-settings-daemon follows by blanking the displays.
+loginctl lock-session ${session:+"$session"} 2>/dev/null || true
+
+# The session answered the logind signal, but if it did not - no session, or a
+# shell without locking - blank the displays ourselves.  Mutter exposes this
+# and ignores a value of -1, meaning the output cannot be blanked that way.
+case "$(busctl --user get-property org.gnome.Mutter.DisplayConfig \
+	/org/gnome/Mutter/DisplayConfig \
+	org.gnome.Mutter.DisplayConfig PowerSaveMode 2>/dev/null)" in
+*i\ 0)
+	busctl --user set-property org.gnome.Mutter.DisplayConfig \
+		/org/gnome/Mutter/DisplayConfig \
+		org.gnome.Mutter.DisplayConfig PowerSaveMode i 3 2>/dev/null || true
+	;;
+esac
+
+exit 0

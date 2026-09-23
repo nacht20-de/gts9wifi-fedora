@@ -11,21 +11,44 @@
 #   set NAME 0|1   write the control now and remember it for the next boot
 #   apply          write every saved value; this is the boot unit's job
 #
-# Nothing here needs privileges: the udev rule opens the touchscreen attribute
-# to group video, and the state directory is handed to that same group, so the
-# session user can run this directly.  The state directory is created here
-# rather than by a tmpfiles.d entry on purpose: this port's root filesystem is
-# owned by the build user, and systemd-tmpfiles refuses to touch any path under
-# it ("Detected unsafe path transition"), so a tmpfiles entry would silently do
+# Controls come in two kinds, selected by the last table field:
+#
+#   sysfs         the target is a sysfs attribute holding 0 or 1, and udev
+#                 opens it to group video so the session user can write it
+#   power-button  the target is not a file at all but what the power button
+#                 does: 0 suspends (stock), 1 sleeps - screen off and locked,
+#                 with the system left running so Wi-Fi and remote access
+#                 survive.  See power_button_sleep_on() below for the pieces
+#                 this needs.
+#
+# Besides the logind drop-in of a power-button control, nothing here needs
+# privileges: the udev rule opens the touchscreen attribute to group video, and
+# the state directory is handed to that same group, so the session user can run
+# this directly.  The state directory is created here rather than by a
+# tmpfiles.d entry on purpose: this port's root filesystem is owned by the
+# build user, and systemd-tmpfiles refuses to touch any path under it
+# ("Detected unsafe path transition"), so a tmpfiles entry would silently do
 # nothing.
 set -u
 
 state_dir=/var/lib/gts9wifi
 
-# name|group|label|description|default|sysfs path
+logind_dir=/etc/systemd/logind.conf.d
+logind_conf=$logind_dir/10-gts9wifi-power-key.conf
+
+power_schema=org.gnome.settings-daemon.plugins.power
+media_keys_schema=org.gnome.settings-daemon.plugins.media-keys
+# A relocatable gsettings schema: the path after the colon is ours, so this
+# never collides with a custom keybinding the user made themselves.
+power_key_path=/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom-gts9wifi-power/
+power_key_schema=org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$power_key_path
+power_key_command=/usr/libexec/gts9wifi-power-key-sleep
+
+# name|group|label|description|default|target|kind
 CONTROLS='
-double-tap-to-wake|Touchscreen|Double tap to wake|Wake the tablet from suspend by double tapping the screen.|1|/sys/bus/i2c/devices/10-0049/double_tap_to_wake
-fast-charge|Power|Fast charging|Charges the battery faster by drawing more power from your charger. A 5 A USB-C cable is recommended.|0|/sys/bus/i2c/devices/6-0049/fast_charge
+double-tap-to-wake|Touchscreen|Double tap to wake|Wake the tablet from suspend by double tapping the screen.|1|/sys/bus/i2c/devices/10-0049/double_tap_to_wake|sysfs
+fast-charge|Power|Fast charging|Charges the battery faster by drawing more power from your charger. A 5 A USB-C cable is recommended.|0|/sys/bus/i2c/devices/6-0049/fast_charge|sysfs
+power-button|Power|Sleep instead of suspend|What the power button does. On turns the screen off and locks the tablet but leaves it running, so Wi-Fi and downloads carry on and the tablet stays reachable. Off suspends the tablet, which is the stock behaviour but drops it off the network until you wake it.|0|power-button|power-button
 '
 
 usage() {
@@ -67,6 +90,244 @@ saved_value() { # saved_value <name> <default>
 	esac
 }
 
+# True when we can talk to the session bus, which is the case when the
+# extension runs this (it inherits gnome-shell's environment) and not when the
+# boot unit does.
+have_session() {
+	[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] && return 0
+	[ -n "${XDG_RUNTIME_DIR:-}" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]
+}
+
+# The settings a power-button control has to change are the user's, so the
+# values we find when switching to sleep are kept here and put back when
+# switching away again.  First write wins: applying the same setting twice must
+# not record our own 'nothing' as if the user had chosen it.
+remember() { # remember <key> <value>
+	ensure_state_dir
+	file=$state_dir/power-button-saved-$1
+	[ -e "$file" ] && return 0
+	printf '%s\n' "$2" >"$file" 2>/dev/null || true
+	chmod 0664 "$file" 2>/dev/null || true
+}
+
+recalled() { # recalled <key>
+	cat "$state_dir/power-button-saved-$1" 2>/dev/null
+}
+
+forget() { # forget <key>
+	rm -f "$state_dir/power-button-saved-$1" 2>/dev/null || true
+}
+
+# Put the keybinding ours in the user's custom-keybindings list, or take it out
+# again, leaving any entries of their own alone.
+power_key_list_update() { # power_key_list_update add|remove
+	have_session || return 0
+	current=$(gsettings get "$media_keys_schema" custom-keybindings 2>/dev/null) || return 0
+	# GVariant text for an array of strings, e.g. ['/path/a/', '/path/b/'] or
+	# @as [] when empty.  Strip the delimiters and quotes, then rebuild.
+	paths=$(printf '%s' "$current" | sed "s/^@as //; s/^\[//; s/\]$//; s/'//g; s/,/ /g")
+	kept=
+	for path in $paths; do
+		[ "$path" = "$power_key_path" ] && continue
+		kept="$kept '$path',"
+	done
+	if [ "$1" = add ]; then
+		kept="$kept '$power_key_path',"
+	fi
+	if [ -n "$kept" ]; then
+		gsettings set "$media_keys_schema" custom-keybindings "[${kept%,}]" 2>/dev/null || true
+	else
+		gsettings set "$media_keys_schema" custom-keybindings "@as []" 2>/dev/null || true
+	fi
+}
+
+# The power key is grabbed by gnome-settings-daemon (setting "power" plus its
+# static twin "power-static", which defaults to XF86PowerOff), so whoever else
+# wants that key has to make gsd let go of it first.  gsd only looks at a
+# shortcut again when the settings key it was registered under changes - and
+# for the power key that key is "power", not "power-static" - so dropping the
+# binding in "power-static" is not enough on its own: "power" has to change too
+# or gsd keeps the grab it already has.  This writes "power" back to its
+# default, forcing that second look.
+power_key_resync() { # power_key_resync <value to leave in "power">
+	have_session || return 0
+	target=$1
+	current=$(gsettings get "$media_keys_schema" power 2>/dev/null) || return 0
+	if [ "$current" = "$target" ]; then
+		if [ "$target" = "[]" ]; then
+			scratch="['']"
+		else
+			scratch="[]"
+		fi
+		gsettings set "$media_keys_schema" power "$scratch" 2>/dev/null || true
+	fi
+	gsettings set "$media_keys_schema" power "$target" 2>/dev/null || true
+}
+
+# Switch the session to sleeping on the power button.
+power_button_sleep_on() {
+	have_session || return 0
+
+	remember power-static "$(gsettings get "$media_keys_schema" power-static 2>/dev/null)"
+	remember power "$(gsettings get "$media_keys_schema" power 2>/dev/null)"
+	remember sleep-inactive-ac-timeout "$(gsettings get "$power_schema" sleep-inactive-ac-timeout 2>/dev/null)"
+	remember sleep-inactive-battery-timeout "$(gsettings get "$power_schema" sleep-inactive-battery-timeout 2>/dev/null)"
+
+	# Hand the power key back to us, and make sure that even if something else
+	# still acts on it, it is not a suspend.
+	gsettings set "$media_keys_schema" power-static "@as []" 2>/dev/null || true
+	power_key_resync "['']"
+	gsettings set "$power_schema" power-button-action 'nothing' 2>/dev/null || true
+
+	# "Keeps running" has to include staying awake on its own: the idle
+	# timeout suspends after a few minutes (15 by default, 5 on this
+	# tablet), which would drop it off the network anyway.  0 means never;
+	# the screen still blanks on idle, which is a separate setting.
+	gsettings set "$power_schema" sleep-inactive-ac-timeout 0 2>/dev/null || true
+	gsettings set "$power_schema" sleep-inactive-battery-timeout 0 2>/dev/null || true
+
+	gsettings set "$power_key_schema" name 'Sleep' 2>/dev/null || true
+	gsettings set "$power_key_schema" command "$power_key_command" 2>/dev/null || true
+	gsettings set "$power_key_schema" binding 'XF86PowerOff' 2>/dev/null || true
+	power_key_list_update add
+}
+
+# Put the session back to suspending on the power button.
+power_button_sleep_off() {
+	have_session || return 0
+
+	power_key_list_update remove
+	gsettings set "$power_schema" power-button-action 'suspend' 2>/dev/null || true
+
+	restored=$(recalled sleep-inactive-ac-timeout)
+	if [ -n "$restored" ]; then
+		gsettings set "$power_schema" sleep-inactive-ac-timeout "$restored" 2>/dev/null || true
+	fi
+	forget sleep-inactive-ac-timeout
+	restored=$(recalled sleep-inactive-battery-timeout)
+	if [ -n "$restored" ]; then
+		gsettings set "$power_schema" sleep-inactive-battery-timeout "$restored" 2>/dev/null || true
+	fi
+	forget sleep-inactive-battery-timeout
+
+	# Give the power key back to gsd, then force the re-grab.
+	restored=$(recalled power-static)
+	if [ -n "$restored" ]; then
+		gsettings set "$media_keys_schema" power-static "$restored" 2>/dev/null || true
+	else
+		gsettings reset "$media_keys_schema" power-static 2>/dev/null || true
+	fi
+	forget power-static
+	restored=$(recalled power)
+	if [ -n "$restored" ]; then
+		power_key_resync "$restored"
+	else
+		power_key_resync "['']"
+	fi
+	forget power
+}
+
+# The system half: what logind does with the power key when no session is
+# handling it (a console login, or a session that is not GNOME).  logind reads
+# this file at startup and does not reload it, so it takes effect from the next
+# boot.  sleep (1) must never suspend.
+#
+# Only root can write here; a session user reaching this through the extension
+# simply gets the session half, and the boot unit publishes the file at the
+# next boot.  The whole write is wrapped so that refusal stays quiet: this is
+# an expected outcome, not an error to report.
+power_button_logind() { # power_button_logind <0|1>
+	(
+		[ -d "$logind_dir" ] || mkdir -p "$logind_dir" || exit 1
+		if [ "$1" = 1 ]; then
+			action=ignore
+		else
+			action=suspend
+		fi
+		{
+			echo "# Written by gts9wifi-device-control from the power-button setting."
+			echo "# 0 suspends on the power key (stock), 1 ignores it (the session"
+			echo "# handles it and sleeps instead)."
+			echo "[Login]"
+			echo "HandlePowerKey=$action"
+			if [ "$1" = 1 ]; then
+				echo "# Sleeping means staying awake: never suspend the system on idle."
+				echo "IdleAction=ignore"
+			fi
+		} >"$logind_conf" || exit 1
+		chmod 0644 "$logind_conf" 2>/dev/null || true
+	) 2>/dev/null
+}
+
+# Live value of a power-button control: ask GNOME first, because that is what
+# actually decides what the key does, and fall back to what we saved.
+power_button_live() { # power_button_live <name> <default>
+	if have_session; then
+		action=$(gsettings get "$power_schema" power-button-action 2>/dev/null) || action=""
+		case "$action" in
+		"'nothing'") printf '1\n'; return 0 ;;
+		"'suspend'") printf '0\n'; return 0 ;;
+		esac
+	fi
+	saved_value "$1" "$2"
+}
+
+# One place that knows how each kind reads, writes and applies a value.
+live_of() { # live_of <kind> <name> <target> <default>
+	case "$1" in
+	power-button) power_button_live "$2" "$4" ;;
+	*) live_value "$3" "$4" ;;
+	esac
+}
+
+set_of() { # set_of <kind> <name> <target> <value>
+	case "$1" in
+	power-button)
+		if [ "$4" = 1 ]; then
+			power_button_sleep_on
+		else
+			power_button_sleep_off
+		fi
+		power_button_logind "$4"
+		;;
+	*)
+		if ! printf '%s\n' "$4" >"$3" 2>/dev/null; then
+			echo "gts9wifi-device-control: cannot write $3" >&2
+			exit 1
+		fi
+		;;
+	esac
+	ensure_state_dir
+	printf '%s\n' "$4" >"$state_dir/$2" 2>/dev/null || true
+	chmod 0664 "$state_dir/$2" 2>/dev/null || true
+}
+
+apply_of() { # apply_of <kind> <name> <target> <default>
+	case "$1" in
+	power-button)
+		ensure_state_file "$2" "$4"
+		# The session half is already in effect: it lives in the user's
+		# dconf, which persists, and gsd reads it at startup.  All the boot
+		# unit has to do is publish the saved value to logind.
+		power_button_logind "$(saved_value "$2" "$4")"
+		;;
+	*)
+		# The device the control lives on may still be probing at boot, so
+		# give it a bounded moment to appear before giving up on it.
+		tries=0
+		while [ ! -e "$3" ] && [ "$tries" -lt 20 ]; do
+			sleep 1
+			tries=$((tries + 1))
+		done
+		ensure_state_file "$2" "$4"
+		value=$(saved_value "$2" "$4")
+		if ! printf '%s\n' "$value" >"$3" 2>/dev/null; then
+			echo "gts9wifi-device-control: cannot write $3" >&2
+		fi
+		;;
+	esac
+}
+
 command=${1:-list}
 name_arg=${2:-}
 value_arg=${3:-}
@@ -77,8 +338,9 @@ list|apply|get|set) ;;
 esac
 
 matched=0
-while IFS='|' read -r name group label description default path; do
+while IFS='|' read -r name group label description default target kind; do
 	[ -n "$name" ] || continue
+	kind=${kind:-sysfs}
 	if [ -n "$name_arg" ] && [ "$name_arg" != "$name" ]; then
 		continue
 	fi
@@ -88,10 +350,10 @@ while IFS='|' read -r name group label description default path; do
 	list)
 		printf '%s\t%s\t%s\t%s\t%s\n' \
 			"$name" "$group" "$label" "$description" \
-			"$(live_value "$path" "$default")"
+			"$(live_of "$kind" "$name" "$target" "$default")"
 		;;
 	get)
-		live_value "$path" "$default"
+		live_of "$kind" "$name" "$target" "$default"
 		;;
 	set)
 		case "$value_arg" in
@@ -101,27 +363,10 @@ while IFS='|' read -r name group label description default path; do
 			exit 2
 			;;
 		esac
-		if ! printf '%s\n' "$value_arg" >"$path" 2>/dev/null; then
-			echo "gts9wifi-device-control: cannot write $path" >&2
-			exit 1
-		fi
-		ensure_state_dir
-		printf '%s\n' "$value_arg" >"$state_dir/$name" 2>/dev/null || true
-		chmod 0664 "$state_dir/$name" 2>/dev/null || true
+		set_of "$kind" "$name" "$target" "$value_arg"
 		;;
 	apply)
-		# The device the control lives on may still be probing at boot, so
-		# give it a bounded moment to appear before giving up on it.
-		tries=0
-		while [ ! -e "$path" ] && [ "$tries" -lt 20 ]; do
-			sleep 1
-			tries=$((tries + 1))
-			done
-		ensure_state_file "$name" "$default"
-		value=$(saved_value "$name" "$default")
-		if ! printf '%s\n' "$value" >"$path" 2>/dev/null; then
-			echo "gts9wifi-device-control: cannot write $path" >&2
-		fi
+		apply_of "$kind" "$name" "$target" "$default"
 		;;
 	esac
 done <<EOF
